@@ -150,6 +150,14 @@ A Hebrew-language, gamified web application for families to manage household cho
 - `updated_by`: admin user ID
 - `updated_at`
 
+### Notifications
+- `id`, `user_id`, `family_id`
+- `type`: `chore_assigned` | `completion_reviewed` | `trade_received` | `trade_resolved` | `redemption_resolved` | `proposal_resolved` | `penalty_applied` | `achievement_earned` | `reminder`
+- `title_he`, `body_he`: Hebrew notification text
+- `related_entity_id`: nullable
+- `read`: boolean (default false)
+- `created_at`
+
 ### Feedback
 - `id`, `user_id`, `family_id`
 - `category`: `bug` | `improvement` | `love` | `bothers`
@@ -300,7 +308,67 @@ All notifications delivered in-app via Supabase Realtime. Future version: push n
 
 ---
 
-## 7. Out of Scope (Future Versions)
+## 7. Security, Privacy & Storage Management
+
+### 7.1 Photo Security & Privacy
+
+**EXIF stripping:**
+All photos are processed client-side before upload using the browser Canvas API (via `browser-image-compression`). The re-encoded JPEG/WebP output strips all EXIF metadata — including GPS location, device model, and timestamp — before the file ever leaves the device.
+
+**Private storage bucket:**
+Photos are stored in a **private** Supabase Storage bucket (`completion-photos`). There are no public URLs. Access is granted only via short-lived signed URLs (expiry: 1 hour), generated server-side only when an admin or the submitting player requests to view a specific photo.
+
+**Row Level Security (RLS):**
+RLS policies are enabled on every Supabase table. Key rules:
+- Users can only read/write rows belonging to their own `family_id`
+- Players can only update their own records (e.g., their own chore assignments)
+- Only admins can approve completions, modify trust levels, or apply penalties
+- Coin Transactions and Penalty records are read-only for players (insert only via server-side logic / Supabase Edge Functions)
+- Feedback is write-only for players (they cannot read other players' feedback)
+
+**No sensitive data in logs:**
+Photo URLs, user emails, and avatar URLs are never logged to Supabase logs or Vercel function logs.
+
+---
+
+### 7.2 Storage & Database Size Management
+
+**Target:** Stay within Supabase free tier at all times.
+- Database: 500 MB
+- File storage: 1 GB
+- Bandwidth: 5 GB/month
+
+**Photo compression (client-side, before upload):**
+- Max resolution: 1280 × 960 px
+- Format: WebP (smaller than JPEG at equivalent quality)
+- Quality: 75%
+- Estimated size per photo: ~100–200 KB
+- At 5 chores/week × 4 family members × 52 weeks: ~200 photos/year ≈ ~30–40 MB/year of photos. Well within the 1 GB storage limit.
+
+**Photo retention policy:**
+Photos are ephemeral proof — they have no long-term value once reviewed.
+- On approval or rejection of a Chore Completion: the photo file is deleted from Supabase Storage immediately after the admin reviews it.
+- The `photo_url` field is set to `null` after deletion. The Completion record itself is kept for audit history.
+- Unreviewed photos (pending) older than 30 days are auto-deleted by a weekly cleanup job (Supabase Edge Function on a cron schedule) and the completion is marked `expired`.
+
+**Database row pruning:**
+- **Coin Transactions:** Rows older than 12 months are archived to a `coin_transactions_archive` table (same schema, no RLS overhead). Balance integrity is maintained via the denormalized `coin_balance` on Users.
+- **Chore Completions:** Rejected completions older than 90 days are hard-deleted (photo already gone). Approved completions older than 12 months are hard-deleted.
+- **Trade Offers:** Expired and declined offers older than 90 days are hard-deleted.
+- **Feedback:** Rows marked `resolved` older than 6 months are hard-deleted.
+- **Notifications:** Read notifications older than 30 days are hard-deleted.
+- All pruning runs as a weekly Supabase Edge Function (cron). Admins can trigger it manually from the admin dashboard.
+
+**Chore Assignment cleanup:**
+- Old Chore Assignments (completed or failed) from more than 8 weeks ago are soft-deleted (flagged `archived = true`) and excluded from all queries by default. Hard-deleted after 12 months.
+
+**Storage monitoring:**
+- Admin dashboard shows current Supabase storage usage (DB size + file storage) fetched from the Supabase Management API.
+- A warning banner appears in the admin dashboard if DB exceeds 400 MB or file storage exceeds 800 MB, prompting a manual pruning run.
+
+---
+
+## 8. Out of Scope (Future Versions)
 
 - Push notifications (browser / mobile)
 - Multi-family support (single family per deployment for now)
@@ -312,7 +380,7 @@ All notifications delivered in-app via Supabase Realtime. Future version: push n
 
 ---
 
-## 8. Success Criteria
+## 9. Success Criteria
 
 - Any family member can log in from phone, tablet, or computer in Hebrew
 - Admins can manage the full chore and reward lifecycle without technical knowledge
