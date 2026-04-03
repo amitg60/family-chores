@@ -1,2 +1,8 @@
-// STUB - will be replaced in Task 10
-export default function PlayerDashboard() { return null }
+export default function PlayerDashboard() {
+  return (
+    <div className="space-y-4" dir="rtl">
+      <h1 className="text-2xl font-bold">הדשבורד שלי</h1>
+      <p className="text-muted-foreground">תוכן הדשבורד יתווסף בשלב הבא.</p>
+    </div>
+  )
+}
