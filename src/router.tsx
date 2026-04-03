@@ -3,6 +3,8 @@ import { useAuth } from './contexts/AuthContext'
 import ProtectedRoute from './components/layout/ProtectedRoute'
 import LoginPage from './pages/LoginPage'
 import AdminDashboard from './pages/admin/AdminDashboard'
+import ChoresPage from './pages/admin/chores/ChoresPage'
+import ChoreFormPage from './pages/admin/chores/ChoreFormPage'
 import PlayerDashboard from './pages/player/PlayerDashboard'
 import AdminLayout from './components/layout/AdminLayout'
 import PlayerLayout from './components/layout/PlayerLayout'
@@ -28,6 +30,9 @@ export const router = createBrowserRouter([
     ),
     children: [
       { index: true, element: <AdminDashboard /> },
+      { path: 'chores', element: <ChoresPage /> },
+      { path: 'chores/new', element: <ChoreFormPage /> },
+      { path: 'chores/:id/edit', element: <ChoreFormPage /> },
     ],
   },
   {
