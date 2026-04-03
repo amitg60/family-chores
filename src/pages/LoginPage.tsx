@@ -18,12 +18,15 @@ export default function LoginPage() {
     e.preventDefault()
     setError(null)
     setLoading(true)
-    const { error } = await signIn(email, password)
-    setLoading(false)
-    if (error) {
-      setError('האימייל או הסיסמה שגויים')
-    } else {
-      navigate('/', { replace: true })
+    try {
+      const { error } = await signIn(email, password)
+      if (error) {
+        setError('האימייל או הסיסמה שגויים')
+      } else {
+        navigate('/', { replace: true })
+      }
+    } finally {
+      setLoading(false)
     }
   }
 
