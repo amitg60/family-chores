@@ -127,6 +127,19 @@ describe('ChoreFormPage — edit mode', () => {
     expect((screen.getByLabelText('תיאור') as HTMLTextAreaElement).value).toBe('לשטוף כלים')
   })
 
+  it('shows error when edit-mode fetch fails', async () => {
+    mockFrom.mockReturnValue({
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      single: vi.fn().mockResolvedValue({ data: null, error: { message: 'not found' } }),
+    })
+    renderEdit('c1')
+
+    await waitFor(() =>
+      expect(screen.getByRole('alert')).toBeInTheDocument()
+    )
+  })
+
   it('updates chore on submit and navigates to /admin/chores', async () => {
     mockFrom
       .mockReturnValueOnce({

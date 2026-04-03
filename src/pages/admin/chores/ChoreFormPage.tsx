@@ -41,7 +41,11 @@ export default function ChoreFormPage() {
       .select('*')
       .eq('id', id)
       .single()
-      .then(({ data }) => {
+      .then(({ data, error }) => {
+        if (error) {
+          setError('שגיאה בטעינת המשימה')
+          return
+        }
         if (!data) return
         setTitle(data.title)
         setDescription(data.description ?? '')
@@ -68,6 +72,12 @@ export default function ChoreFormPage() {
         is_recurring: isRecurring,
       }
 
+      if (!profile?.family_id) {
+        setError('שגיאה בשמירת המשימה')
+        setSaving(false)
+        return
+      }
+
       let err: { message: string } | null = null
 
       if (isEditMode) {
@@ -76,7 +86,7 @@ export default function ChoreFormPage() {
       } else {
         const result = await supabase.from('chores').insert({
           ...payload,
-          family_id: profile!.family_id!,
+          family_id: profile.family_id,
           status: 'active' as ChoreStatus,
         })
         err = result.error
@@ -141,7 +151,7 @@ export default function ChoreFormPage() {
             <div className="space-y-1">
               <Label>רמת קושי</Label>
               <Select value={difficulty} onValueChange={v => setDifficulty(v as ChoreDifficulty)}>
-                <SelectTrigger>
+                <SelectTrigger aria-label="רמת קושי">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -155,7 +165,7 @@ export default function ChoreFormPage() {
             <div className="space-y-1">
               <Label>שייך ל</Label>
               <Select value={assignedTo} onValueChange={setAssignedTo}>
-                <SelectTrigger>
+                <SelectTrigger aria-label="שייך ל">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
