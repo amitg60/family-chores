@@ -48,5 +48,6 @@ describe('useFamilyMembers', () => {
     const { result } = renderHook(() => useFamilyMembers())
     await waitFor(() => expect(result.current.loading).toBe(false))
     expect(result.current.members).toEqual([])
+    expect(result.current.error).toBe('RLS error')
   })
 })
