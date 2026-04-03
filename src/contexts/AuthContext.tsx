@@ -19,6 +19,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<Profile | null>(null)
   const [loading, setLoading] = useState(true)
 
+  // getSession handles the initial load. onAuthStateChange handles subsequent changes.
+  // On first mount, both may fire for the same session (e.g. on page reload with an active
+  // session). This can trigger two fetchProfile calls — the second will overwrite the first
+  // with the same data, which is benign. A future refactor could use a ref flag to deduplicate.
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session)
@@ -43,13 +47,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   async function fetchProfile(userId: string) {
-    const { data } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', userId)
-      .single()
-    setProfile(data as Profile | null)
-    setLoading(false)
+    try {
+      const { data } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .single()
+      setProfile(data as Profile | null)
+    } finally {
+      setLoading(false)
+    }
   }
 
   async function signIn(email: string, password: string) {

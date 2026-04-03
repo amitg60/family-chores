@@ -1,12 +1,20 @@
 import { vi } from 'vitest'
 
-export const mockGetSession = vi.fn()
-export const mockSignInWithPassword = vi.fn()
-export const mockSignOut = vi.fn()
-export const mockOnAuthStateChange = vi.fn(() => ({
-  data: { subscription: { unsubscribe: vi.fn() } },
+const {
+  mockGetSession,
+  mockSignInWithPassword,
+  mockSignOut,
+  mockOnAuthStateChange,
+  mockFrom,
+} = vi.hoisted(() => ({
+  mockGetSession: vi.fn(),
+  mockSignInWithPassword: vi.fn(),
+  mockSignOut: vi.fn(),
+  mockOnAuthStateChange: vi.fn(() => ({
+    data: { subscription: { unsubscribe: vi.fn() } },
+  })),
+  mockFrom: vi.fn(),
 }))
-export const mockFrom = vi.fn()
 
 vi.mock('../../lib/supabase', () => ({
   supabase: {
@@ -19,3 +27,5 @@ vi.mock('../../lib/supabase', () => ({
     from: mockFrom,
   },
 }))
+
+export { mockGetSession, mockSignInWithPassword, mockSignOut, mockOnAuthStateChange, mockFrom }
