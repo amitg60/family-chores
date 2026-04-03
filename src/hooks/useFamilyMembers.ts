@@ -16,8 +16,10 @@ export function useFamilyMembers(): UseFamilyMembersResult {
       .from('profiles')
       .select('*')
       .order('name')
-      .then(({ data }) => {
-        setMembers((data as Profile[]) ?? [])
+      .then(({ data, error }) => {
+        if (!error) {
+          setMembers((data as Profile[]) ?? [])
+        }
         setLoading(false)
       })
   }, [])
