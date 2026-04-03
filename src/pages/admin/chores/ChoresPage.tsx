@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useChores } from '../../../hooks/useChores'
 import { useFamilyMembers } from '../../../hooks/useFamilyMembers'
@@ -25,6 +26,7 @@ export default function ChoresPage() {
   const { chores, loading, error, refetch } = useChores()
   const { members } = useFamilyMembers()
   const { profile } = useAuth()
+  const [mutationError, setMutationError] = useState<string | null>(null)
 
   const activeChores = chores.filter(c => c.status === 'active')
   const pendingChores = chores.filter(c => c.status === 'pending_approval')
@@ -35,21 +37,24 @@ export default function ChoresPage() {
   }
 
   async function archiveChore(chore: Chore) {
-    await supabase.from('chores').update({ status: 'archived' }).eq('id', chore.id)
-    refetch()
+    setMutationError(null)
+    const { error } = await supabase.from('chores').update({ status: 'archived' }).eq('id', chore.id)
+    if (error) { setMutationError('שגיאה בארכוב המשימה') } else { refetch() }
   }
 
   async function approveChore(chore: Chore) {
-    await supabase
+    setMutationError(null)
+    const { error } = await supabase
       .from('chores')
       .update({ status: 'active', approved_by: profile?.id })
       .eq('id', chore.id)
-    refetch()
+    if (error) { setMutationError('שגיאה באישור ההצעה') } else { refetch() }
   }
 
   async function rejectChore(chore: Chore) {
-    await supabase.from('chores').update({ status: 'archived' }).eq('id', chore.id)
-    refetch()
+    setMutationError(null)
+    const { error } = await supabase.from('chores').update({ status: 'archived' }).eq('id', chore.id)
+    if (error) { setMutationError('שגיאה בדחיית ההצעה') } else { refetch() }
   }
 
   if (loading) {
@@ -72,6 +77,10 @@ export default function ChoresPage() {
           <Link to="/admin/chores/new">משימה חדשה</Link>
         </Button>
       </div>
+
+      {mutationError && (
+        <p role="alert" className="text-sm text-destructive">{mutationError}</p>
+      )}
 
       {pendingChores.length > 0 && (
         <Card>

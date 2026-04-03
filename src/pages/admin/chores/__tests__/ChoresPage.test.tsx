@@ -127,4 +127,19 @@ describe('ChoresPage', () => {
     renderChoresPage()
     expect(screen.getByRole('link', { name: 'משימה חדשה' })).toBeInTheDocument()
   })
+
+  it('shows error message when archive mutation fails', async () => {
+    mockUseChores.mockReturnValue({ chores: [activeChore], loading: false, error: null, refetch: mockRefetch })
+    const mockEq = vi.fn().mockResolvedValue({ error: { message: 'RLS denied' } })
+    const mockUpdate = vi.fn().mockReturnValue({ eq: mockEq })
+    mockFrom.mockReturnValue({ update: mockUpdate })
+
+    renderChoresPage()
+    await userEvent.click(screen.getByRole('button', { name: 'ארכיון' }))
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent('שגיאה בארכוב המשימה')
+      expect(mockRefetch).not.toHaveBeenCalled()
+    })
+  })
 })
