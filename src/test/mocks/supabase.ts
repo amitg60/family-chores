@@ -6,6 +6,8 @@ const {
   mockSignOut,
   mockOnAuthStateChange,
   mockFrom,
+  mockRpc,
+  mockStorageFrom,
 } = vi.hoisted(() => ({
   mockGetSession: vi.fn(),
   mockSignInWithPassword: vi.fn(),
@@ -14,6 +16,8 @@ const {
     data: { subscription: { unsubscribe: vi.fn() } },
   })),
   mockFrom: vi.fn(),
+  mockRpc: vi.fn(),
+  mockStorageFrom: vi.fn(),
 }))
 
 vi.mock('../../lib/supabase', () => ({
@@ -25,7 +29,19 @@ vi.mock('../../lib/supabase', () => ({
       onAuthStateChange: mockOnAuthStateChange,
     },
     from: mockFrom,
+    rpc: mockRpc,
+    storage: {
+      from: mockStorageFrom,
+    },
   },
 }))
 
-export { mockGetSession, mockSignInWithPassword, mockSignOut, mockOnAuthStateChange, mockFrom }
+export {
+  mockGetSession,
+  mockSignInWithPassword,
+  mockSignOut,
+  mockOnAuthStateChange,
+  mockFrom,
+  mockRpc,
+  mockStorageFrom,
+}
