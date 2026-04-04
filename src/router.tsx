@@ -6,9 +6,13 @@ import AdminDashboard from './pages/admin/AdminDashboard'
 import ChoresPage from './pages/admin/chores/ChoresPage'
 import ChoreFormPage from './pages/admin/chores/ChoreFormPage'
 import CompletionsPage from './pages/admin/completions/CompletionsPage'
+import RewardsPage from './pages/admin/rewards/RewardsPage'
+import RewardFormPage from './pages/admin/rewards/RewardFormPage'
+import RedemptionsPage from './pages/admin/rewards/RedemptionsPage'
 import PlayerDashboard from './pages/player/PlayerDashboard'
 import ChorePoolPage from './pages/player/chores/ChorePoolPage'
 import CompletionPage from './pages/player/chores/CompletionPage'
+import RewardStorePage from './pages/player/store/RewardStorePage'
 import AdminLayout from './components/layout/AdminLayout'
 import PlayerLayout from './components/layout/PlayerLayout'
 
@@ -37,6 +41,10 @@ export const router = createBrowserRouter([
       { path: 'chores/new', element: <ChoreFormPage /> },
       { path: 'chores/:id/edit', element: <ChoreFormPage /> },
       { path: 'completions', element: <CompletionsPage /> },
+      { path: 'rewards', element: <RewardsPage /> },
+      { path: 'rewards/new', element: <RewardFormPage /> },
+      { path: 'rewards/:id/edit', element: <RewardFormPage /> },
+      { path: 'redemptions', element: <RedemptionsPage /> },
     ],
   },
   {
@@ -50,6 +58,7 @@ export const router = createBrowserRouter([
       { index: true, element: <PlayerDashboard /> },
       { path: 'pool', element: <ChorePoolPage /> },
       { path: 'chores/:assignmentId/complete', element: <CompletionPage /> },
+      { path: 'store', element: <RewardStorePage /> },
     ],
   },
   {

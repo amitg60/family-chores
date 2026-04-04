@@ -39,6 +39,14 @@ export default function PlayerLayout() {
           >
             בריכה
           </NavLink>
+          <NavLink
+            to="/player/store"
+            className={({ isActive }) =>
+              `px-3 py-1.5 rounded text-sm font-medium transition-colors ${isActive ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`
+            }
+          >
+            החנות
+          </NavLink>
         </nav>
         <Button variant="outline" size="sm" onClick={signOut}>
           יציאה
