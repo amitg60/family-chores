@@ -59,7 +59,7 @@ function AssignmentCard({
       <div className="flex items-center gap-1">
         <Avatar className="h-5 w-5">
           <AvatarImage src={a.profiles.avatar_url ?? undefined} />
-          <AvatarFallback className="text-[10px]">{a.profiles.name[0] ?? '?'}</AvatarFallback>
+          <AvatarFallback className="text-[10px]">{a.profiles?.name?.[0] ?? '?'}</AvatarFallback>
         </Avatar>
         <span className="font-medium truncate">{a.chores.title}</span>
       </div>
