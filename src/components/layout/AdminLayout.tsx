@@ -59,6 +59,14 @@ export default function AdminLayout() {
           >
             מימושים
           </NavLink>
+          <NavLink
+            to="/admin/calendar"
+            className={({ isActive }) =>
+              `px-3 py-1.5 rounded text-sm font-medium transition-colors ${isActive ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`
+            }
+          >
+            לוח שבועי
+          </NavLink>
         </nav>
         <Button variant="outline" size="sm" onClick={signOut}>
           יציאה
