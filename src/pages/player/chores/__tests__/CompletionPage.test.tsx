@@ -124,6 +124,22 @@ describe('CompletionPage', () => {
     )
   })
 
+  it('shows error when approve_completion RPC fails', async () => {
+    mockTrustLevel = 4
+    mockStorageFrom.mockReturnValue(makeStorageMock({ error: null }))
+    mockFrom.mockReturnValue(makeInsertChain({ data: { id: 'comp1' }, error: null }))
+    mockRpc.mockResolvedValue({ error: { message: 'rpc failed' } })
+    renderPage()
+
+    const file = new File(['img'], 'photo.jpg', { type: 'image/jpeg' })
+    await userEvent.upload(screen.getByLabelText('תמונת הוכחה'), file)
+    await userEvent.click(screen.getByRole('button', { name: 'שלח הוכחה' }))
+
+    await waitFor(() =>
+      expect(screen.getByRole('alert')).toHaveTextContent('שגיאה בקבלת המטבעות')
+    )
+  })
+
   it('does NOT call approve_completion RPC for trust level 1 players', async () => {
     mockTrustLevel = 1
     mockStorageFrom.mockReturnValue(makeStorageMock({ error: null }))
