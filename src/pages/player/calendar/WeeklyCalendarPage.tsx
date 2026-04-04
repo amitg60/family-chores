@@ -70,11 +70,11 @@ export default function WeeklyCalendarPage() {
   }
 
   async function handleToggleReminder(a: AssignmentWithDetails) {
-    await supabase
+    const { error } = await supabase
       .from('chore_assignments')
       .update({ reminder_enabled: !a.reminder_enabled })
       .eq('id', a.id)
-    refetch()
+    if (!error) refetch()
   }
 
   return (

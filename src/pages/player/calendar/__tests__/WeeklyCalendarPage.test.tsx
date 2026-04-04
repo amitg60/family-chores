@@ -175,4 +175,17 @@ describe('Player WeeklyCalendarPage', () => {
     expect(screen.queryByRole('button', { name: 'הסר' })).not.toBeInTheDocument()
     expect(screen.queryByRole('checkbox', { name: 'תזכורת' })).not.toBeInTheDocument()
   })
+
+  it('opens pin dialog with pre-populated day and slot for already-pinned assignment', async () => {
+    mockUseCalendarAssignments.mockReturnValue({
+      assignments: [ownPinned], loading: false, error: null, refetch: mockRefetch,
+    })
+    renderPage()
+
+    // "שנה זמן" is rendered by WeeklyCalendarGrid for own pinned assignment
+    await userEvent.click(screen.getByRole('button', { name: 'שנה זמן' }))
+
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'קבע זמן למשימה' })).toBeInTheDocument()
+  })
 })
