@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar'
 import { Button } from '../ui/button'
 import { Badge } from '../ui/badge'
@@ -36,6 +37,73 @@ const MEMBER_COLORS = [
   'bg-purple-100 border-purple-300',
 ]
 
+interface AssignmentCardProps {
+  assignment: AssignmentWithDetails
+  color: string
+  isOwn: boolean
+  onChangePin?: (assignment: AssignmentWithDetails) => void
+  onUnpin?: (assignment: AssignmentWithDetails) => void
+  onToggleReminder?: (assignment: AssignmentWithDetails) => void
+}
+
+function AssignmentCard({
+  assignment: a,
+  color,
+  isOwn,
+  onChangePin,
+  onUnpin,
+  onToggleReminder,
+}: AssignmentCardProps) {
+  return (
+    <div className={`rounded border p-1.5 text-xs space-y-1 ${color}`}>
+      <div className="flex items-center gap-1">
+        <Avatar className="h-5 w-5">
+          <AvatarImage src={a.profiles.avatar_url ?? undefined} />
+          <AvatarFallback className="text-[10px]">{a.profiles.name[0] ?? '?'}</AvatarFallback>
+        </Avatar>
+        <span className="font-medium truncate">{a.chores.title}</span>
+      </div>
+      <div className="flex items-center gap-1 flex-wrap">
+        <Badge variant="secondary" className="text-[10px] px-1 h-4">
+          {STATUS_LABEL[a.status]}
+        </Badge>
+        {isOwn && onChangePin && (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-5 px-1 text-[10px]"
+            onClick={() => onChangePin(a)}
+          >
+            שנה זמן
+          </Button>
+        )}
+        {isOwn && onUnpin && (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-5 px-1 text-[10px]"
+            onClick={() => onUnpin(a)}
+          >
+            הסר
+          </Button>
+        )}
+      </div>
+      {isOwn && onToggleReminder && (
+        <label className="flex items-center gap-1 cursor-pointer">
+          <input
+            type="checkbox"
+            aria-label="תזכורת"
+            checked={a.reminder_enabled}
+            onChange={() => onToggleReminder(a)}
+            className="h-3 w-3"
+          />
+          <span>תזכורת</span>
+        </label>
+      )}
+    </div>
+  )
+}
+
 interface WeeklyCalendarGridProps {
   assignments: AssignmentWithDetails[]
   currentUserId?: string
@@ -52,11 +120,14 @@ export default function WeeklyCalendarGrid({
   onToggleReminder,
 }: WeeklyCalendarGridProps) {
   // Stable colour per user — first seen = first colour
-  const userIds = [...new Set(assignments.map(a => a.user_id))]
-  const colorMap: Record<string, string> = {}
-  userIds.forEach((id, i) => {
-    colorMap[id] = MEMBER_COLORS[i % MEMBER_COLORS.length]
-  })
+  const colorMap = useMemo(() => {
+    const ids = [...new Set(assignments.map(a => a.user_id))]
+    const map: Record<string, string> = {}
+    ids.forEach((id, i) => {
+      map[id] = MEMBER_COLORS[i % MEMBER_COLORS.length]
+    })
+    return map
+  }, [assignments])
 
   // Only pinned assignments belong in the grid
   const pinned = assignments.filter(
@@ -69,61 +140,8 @@ export default function WeeklyCalendarGrid({
     )
   }
 
-  function renderCard(a: AssignmentWithDetails) {
-    const isOwn = a.user_id === currentUserId
-    const color = colorMap[a.user_id] ?? 'bg-gray-100 border-gray-300'
-    return (
-      <div key={a.id} className={`rounded border p-1.5 text-xs space-y-1 ${color}`}>
-        <div className="flex items-center gap-1">
-          <Avatar className="h-5 w-5">
-            <AvatarImage src={a.profiles.avatar_url ?? undefined} />
-            <AvatarFallback className="text-[10px]">{a.profiles.name[0]}</AvatarFallback>
-          </Avatar>
-          <span className="font-medium truncate">{a.chores.title}</span>
-        </div>
-        <div className="flex items-center gap-1 flex-wrap">
-          <Badge variant="secondary" className="text-[10px] px-1 h-4">
-            {STATUS_LABEL[a.status]}
-          </Badge>
-          {isOwn && onChangePin && (
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-5 px-1 text-[10px]"
-              onClick={() => onChangePin(a)}
-            >
-              שנה זמן
-            </Button>
-          )}
-          {isOwn && onUnpin && (
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-5 px-1 text-[10px]"
-              onClick={() => onUnpin(a)}
-            >
-              הסר
-            </Button>
-          )}
-        </div>
-        {isOwn && onToggleReminder && (
-          <label className="flex items-center gap-1 cursor-pointer">
-            <input
-              type="checkbox"
-              aria-label="תזכורת"
-              checked={a.reminder_enabled}
-              onChange={() => onToggleReminder(a)}
-              className="h-3 w-3"
-            />
-            <span>תזכורת</span>
-          </label>
-        )}
-      </div>
-    )
-  }
-
   return (
-    <div className="overflow-x-auto">
+    <div className="overflow-x-auto" dir="rtl">
       <div className="min-w-[600px]">
         {/* Header row: empty corner + 7 day labels */}
         <div className="grid grid-cols-8 gap-1 mb-1">
@@ -149,7 +167,17 @@ export default function WeeklyCalendarGrid({
                 className="min-h-[60px] bg-muted/30 rounded p-1 space-y-1"
                 data-testid={`cell-${day.index}-${slot.key}`}
               >
-                {cellAssignments(day.index, slot.key).map(a => renderCard(a))}
+                {cellAssignments(day.index, slot.key).map(a => (
+                  <AssignmentCard
+                    key={a.id}
+                    assignment={a}
+                    color={colorMap[a.user_id] ?? 'bg-gray-100 border-gray-300'}
+                    isOwn={a.user_id === currentUserId}
+                    onChangePin={onChangePin}
+                    onUnpin={onUnpin}
+                    onToggleReminder={onToggleReminder}
+                  />
+                ))}
               </div>
             ))}
           </div>
