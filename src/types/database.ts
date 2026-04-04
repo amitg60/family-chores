@@ -101,6 +101,7 @@ export interface RewardRedemption {
   status: RedemptionStatus
   redeemed_at: string
   resolved_at: string | null
+  resolved_by: string | null
 }
 
 export interface TradeOffer {
