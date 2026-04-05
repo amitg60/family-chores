@@ -81,10 +81,11 @@ export default function FeedbackPage() {
       noted: false,
       resolved: false,
     })
-    setSubmitting(false)
     if (error) {
+      setSubmitting(false)
       setError('שגיאה בשליחת המשוב')
     } else {
+      setSubmitting(false)
       setSuccess(true)
     }
   }
@@ -103,7 +104,7 @@ export default function FeedbackPage() {
     return (
       <div className="max-w-lg space-y-4" dir="rtl">
         <Card>
-          <CardContent className="py-8 text-center space-y-4">
+          <CardContent role="status" className="py-8 text-center space-y-4">
             <p className="text-2xl">🎉</p>
             <p className="text-lg font-semibold">תודה על המשוב!</p>
             <p className="text-sm text-muted-foreground">המשוב שלך עוזר לנו לשפר את האפליקציה.</p>
@@ -148,7 +149,6 @@ export default function FeedbackPage() {
                   <label key={a.value} className="flex items-center gap-2 cursor-pointer text-sm">
                     <input
                       type="checkbox"
-                      aria-label={a.label}
                       checked={areas.includes(a.value)}
                       onChange={() => toggleArea(a.value)}
                       className="h-4 w-4"
@@ -168,6 +168,7 @@ export default function FeedbackPage() {
                     key={n}
                     type="button"
                     aria-label={`${n} כוכבים`}
+                    aria-pressed={n <= starRating}
                     onClick={() => setStarRating(n)}
                     className={`text-2xl transition-colors ${
                       n <= starRating ? 'text-yellow-400' : 'text-muted-foreground'
@@ -188,6 +189,7 @@ export default function FeedbackPage() {
                     key={m.value}
                     type="button"
                     aria-label={`${m.emoji} ${m.label}`}
+                    aria-pressed={mood === m.value}
                     onClick={() => setMood(m.value)}
                     className={`flex items-center gap-1 px-3 py-1.5 rounded-full border text-sm transition-colors ${
                       mood === m.value
@@ -206,7 +208,6 @@ export default function FeedbackPage() {
               <Label htmlFor="freeText">טקסט חופשי</Label>
               <Textarea
                 id="freeText"
-                aria-label="טקסט חופשי"
                 placeholder="ספר לנו עוד... (אופציונלי)"
                 value={freeText}
                 onChange={e => setFreeText(e.target.value)}
