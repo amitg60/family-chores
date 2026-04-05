@@ -1,10 +1,11 @@
+import { useState, useCallback } from 'react'
 import { useFeedback } from '../../../hooks/useFeedback'
 import type { FeedbackWithProfile } from '../../../hooks/useFeedback'
 import { supabase } from '../../../lib/supabase'
 import { Button } from '../../../components/ui/button'
 import { Badge } from '../../../components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card'
-import type { FeedbackCategory } from '../../../types/database'
+import type { FeedbackCategory, FeedbackMood } from '../../../types/database'
 
 const CATEGORY_LABEL: Record<FeedbackCategory, string> = {
   bug: 'באג',
@@ -13,7 +14,7 @@ const CATEGORY_LABEL: Record<FeedbackCategory, string> = {
   bothers: 'משהו שמפריע לי',
 }
 
-const MOOD_EMOJI: Record<string, string> = {
+const MOOD_EMOJI: Record<FeedbackMood, string> = {
   happy: '😊',
   neutral: '😐',
   frustrated: '😤',
@@ -21,22 +22,19 @@ const MOOD_EMOJI: Record<string, string> = {
 
 export default function FeedbackDashboard() {
   const { feedback, loading, error, refetch } = useFeedback()
+  const [actionError, setActionError] = useState<string | null>(null)
 
-  async function markNoted(id: string) {
-    const { error } = await supabase
-      .from('feedback')
-      .update({ noted: true })
-      .eq('id', id)
+  const markNoted = useCallback(async (id: string) => {
+    const { error } = await supabase.from('feedback').update({ noted: true }).eq('id', id)
     if (!error) refetch()
-  }
+    else setActionError('שגיאה בעדכון. נסה שנית.')
+  }, [refetch])
 
-  async function markResolved(id: string) {
-    const { error } = await supabase
-      .from('feedback')
-      .update({ resolved: true })
-      .eq('id', id)
+  const markResolved = useCallback(async (id: string) => {
+    const { error } = await supabase.from('feedback').update({ resolved: true }).eq('id', id)
     if (!error) refetch()
-  }
+    else setActionError('שגיאה בעדכון. נסה שנית.')
+  }, [refetch])
 
   const avgRating = feedback.length > 0
     ? (feedback.reduce((s, f) => s + f.star_rating, 0) / feedback.length).toFixed(1)
@@ -61,7 +59,7 @@ export default function FeedbackDashboard() {
       ) : error ? (
         <p role="alert" className="text-sm text-destructive">{error}</p>
       ) : feedback.length === 0 ? (
-        <p className="text-muted-foreground">אין משוב עדיין.</p>
+        <p role="status" className="text-muted-foreground">אין משוב עדיין.</p>
       ) : (
         <>
           {/* Stats row */}
@@ -71,7 +69,7 @@ export default function FeedbackDashboard() {
                 <CardTitle className="text-sm font-medium text-muted-foreground">דירוג ממוצע</CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="text-3xl font-bold">⭐ {avgRating}</p>
+                <p className="text-3xl font-bold"><span aria-hidden="true">⭐</span> {avgRating}</p>
                 <p className="text-xs text-muted-foreground">{feedback.length} תגובות</p>
               </CardContent>
             </Card>
@@ -105,7 +103,7 @@ export default function FeedbackDashboard() {
 
           {/* Feedback list */}
           <div className="space-y-3">
-            {feedback.map((f: FeedbackWithProfile) => (
+            {feedback.map((f) => (
               <Card key={f.id}>
                 <CardContent className="py-3 space-y-2">
                   <div className="flex items-start justify-between gap-2">
@@ -114,7 +112,7 @@ export default function FeedbackDashboard() {
                         <span className="font-medium text-sm">{f.profiles.name}</span>
                         <Badge variant="secondary">{CATEGORY_LABEL[f.category]}</Badge>
                         <span>{MOOD_EMOJI[f.mood]}</span>
-                        <span className="text-sm">{'★'.repeat(f.star_rating)}</span>
+                        <span className="text-sm" aria-label={`${f.star_rating} כוכבים`}>{'★'.repeat(f.star_rating)}</span>
                         {f.noted && <Badge variant="outline">נלקח בחשבון</Badge>}
                         {f.resolved && <Badge variant="outline">טופל</Badge>}
                       </div>
@@ -145,6 +143,9 @@ export default function FeedbackDashboard() {
               </Card>
             ))}
           </div>
+          {actionError && (
+            <p role="alert" className="text-sm text-destructive">{actionError}</p>
+          )}
         </>
       )}
     </div>

@@ -128,6 +128,23 @@ describe('FeedbackDashboard', () => {
     })
   })
 
+  it('shows error when "סמן כנלקח בחשבון" fails', async () => {
+    mockUseFeedback.mockReturnValue({
+      feedback: [fakeFeedback], loading: false, error: null, refetch: mockRefetch,
+    })
+    const mockUpdateFn = vi.fn().mockReturnThis()
+    const mockEqFn = vi.fn().mockResolvedValue({ error: { message: 'DB error' } })
+    mockFrom.mockReturnValue({ update: mockUpdateFn, eq: mockEqFn })
+    renderPage()
+
+    await userEvent.click(screen.getByRole('button', { name: 'סמן כנלקח בחשבון' }))
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent('שגיאה בעדכון')
+      expect(mockRefetch).not.toHaveBeenCalled()
+    })
+  })
+
   it('hides "סמן כנלקח בחשבון" for already-noted items', () => {
     mockUseFeedback.mockReturnValue({
       feedback: [resolvedFeedback], loading: false, error: null, refetch: mockRefetch,
