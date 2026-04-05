@@ -38,6 +38,7 @@ export function useFeedback(): UseFeedbackResult {
       setFeedback((data as FeedbackWithProfile[]) ?? [])
     }
     setLoading(false)
+  // supabase is a stable singleton — no external dependencies needed
   }, [])
 
   useEffect(() => { fetchFeedback() }, [fetchFeedback])
