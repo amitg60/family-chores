@@ -17,6 +17,8 @@ import AdminLayout from './components/layout/AdminLayout'
 import PlayerLayout from './components/layout/PlayerLayout'
 import PlayerCalendarPage from './pages/player/calendar/WeeklyCalendarPage'
 import AdminCalendarPage from './pages/admin/calendar/WeeklyCalendarPage'
+import FeedbackPage from './pages/player/feedback/FeedbackPage'
+import FeedbackDashboard from './pages/admin/feedback/FeedbackDashboard'
 
 function RootRedirect() {
   const { profile, session, loading } = useAuth()
@@ -48,6 +50,7 @@ export const router = createBrowserRouter([
       { path: 'rewards/:id/edit', element: <RewardFormPage /> },
       { path: 'redemptions', element: <RedemptionsPage /> },
       { path: 'calendar', element: <AdminCalendarPage /> },
+      { path: 'feedback', element: <FeedbackDashboard /> },
     ],
   },
   {
@@ -63,6 +66,7 @@ export const router = createBrowserRouter([
       { path: 'chores/:assignmentId/complete', element: <CompletionPage /> },
       { path: 'store', element: <RewardStorePage /> },
       { path: 'calendar', element: <PlayerCalendarPage /> },
+      { path: 'feedback', element: <FeedbackPage /> },
     ],
   },
   {

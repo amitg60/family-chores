@@ -55,6 +55,14 @@ export default function PlayerLayout() {
           >
             לוח שבועי
           </NavLink>
+          <NavLink
+            to="/player/feedback"
+            className={({ isActive }) =>
+              `px-3 py-1.5 rounded text-sm font-medium transition-colors ${isActive ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`
+            }
+          >
+            משוב
+          </NavLink>
         </nav>
         <Button variant="outline" size="sm" onClick={signOut}>
           יציאה
