@@ -25,12 +25,14 @@ export default function FeedbackDashboard() {
   const [actionError, setActionError] = useState<string | null>(null)
 
   const markNoted = useCallback(async (id: string) => {
+    setActionError(null)
     const { error } = await supabase.from('feedback').update({ noted: true }).eq('id', id)
     if (!error) refetch()
     else setActionError('שגיאה בעדכון. נסה שנית.')
   }, [refetch])
 
   const markResolved = useCallback(async (id: string) => {
+    setActionError(null)
     const { error } = await supabase.from('feedback').update({ resolved: true }).eq('id', id)
     if (!error) refetch()
     else setActionError('שגיאה בעדכון. נסה שנית.')
