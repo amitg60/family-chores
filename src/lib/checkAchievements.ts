@@ -3,7 +3,6 @@ import type { AchievementWithStatus } from '../hooks/useAchievements'
 
 export interface CheckAchievementsParams {
   userId: string
-  familyId: string
   coinBalance: number
   completedThisWeek: number
   totalCompletedAllTime: number
@@ -32,7 +31,14 @@ export async function checkAndAwardAchievements(params: CheckAchievementsParams)
       user_id: params.userId,
       achievement_id: a.id,
     })
-    if (!error) newlyEarned.push(a.key)
+    if (error) {
+      // 23505 = unique_violation (already earned) — silently skip
+      if ((error as { code?: string }).code !== '23505') {
+        console.error('[checkAndAwardAchievements] unexpected insert error', error)
+      }
+    } else {
+      newlyEarned.push(a.key)
+    }
   }
 
   return newlyEarned

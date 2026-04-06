@@ -20,7 +20,6 @@ const makeAchievement = (overrides: Partial<AchievementWithStatus>): Achievement
 
 const baseParams = {
   userId: 'u1',
-  familyId: 'f1',
   coinBalance: 10,
   completedThisWeek: 0,
   totalCompletedAllTime: 0,
@@ -31,14 +30,16 @@ describe('checkAndAwardAchievements', () => {
   beforeEach(() => vi.clearAllMocks())
 
   it('awards first_chore when totalCompletedAllTime >= threshold', async () => {
-    mockFrom.mockReturnValue({ insert: vi.fn().mockResolvedValue({ error: null }) })
+    const insertMock = vi.fn().mockResolvedValue({ error: null })
+    mockFrom.mockReturnValue({ insert: insertMock })
     const result = await checkAndAwardAchievements({
       ...baseParams,
       totalCompletedAllTime: 1,
-      achievements: [makeAchievement({ key: 'first_chore', trigger_type: 'chore_count', threshold: 1 })],
+      achievements: [makeAchievement({ id: 'ach1', key: 'first_chore', trigger_type: 'chore_count', threshold: 1 })],
     })
     expect(result).toEqual(['first_chore'])
     expect(mockFrom).toHaveBeenCalledWith('player_achievements')
+    expect(insertMock).toHaveBeenCalledWith({ user_id: 'u1', achievement_id: 'ach1' })
   })
 
   it('awards five_chores_week when completedThisWeek >= threshold', async () => {
