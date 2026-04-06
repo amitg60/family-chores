@@ -1,7 +1,12 @@
+import { useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
 import { useChoreAssignments } from '../../hooks/useChoreAssignments'
 import { useChores } from '../../hooks/useChores'
+import { useAchievements } from '../../hooks/useAchievements'
+import { useActivityFeed } from '../../hooks/useActivityFeed'
+import { checkAndAwardAchievements } from '../../lib/checkAchievements'
+import { useToast } from '../../hooks/use-toast'
 import { Button } from '../../components/ui/button'
 import { Badge } from '../../components/ui/badge'
 import { Card, CardContent } from '../../components/ui/card'
@@ -27,6 +32,41 @@ export default function PlayerDashboard() {
   const { profile } = useAuth()
   const { assignments, loading } = useChoreAssignments(profile?.id)
   const { chores } = useChores()
+  const {
+    achievements,
+    earnedIds,
+    totalCompletedAllTime,
+    loading: achievementsLoading,
+    refetch: achievementsRefetch,
+  } = useAchievements(profile?.id)
+  const { items: feedItems } = useActivityFeed()
+  const { toast } = useToast()
+
+  useEffect(() => {
+    if (!profile?.family_id || loading || achievementsLoading) return
+
+    const completedThisWeek = assignments.filter(a => a.status === 'completed').length
+
+    checkAndAwardAchievements({
+      userId: profile.id,
+      familyId: profile.family_id,
+      coinBalance: profile.coin_balance,
+      completedThisWeek,
+      totalCompletedAllTime,
+      earnedIds,
+      achievements,
+    }).then(newlyEarned => {
+      if (newlyEarned.length > 0) {
+        for (const key of newlyEarned) {
+          const a = achievements.find(ach => ach.id === key)
+          if (a) {
+            toast({ title: '🏆 הישג חדש!', description: `${a.icon} ${a.title_he}` })
+          }
+        }
+        achievementsRefetch()
+      }
+    })
+  }, [profile, loading, assignments, achievementsLoading, achievements, earnedIds, totalCompletedAllTime])
 
   function choreTitle(choreId: string): string {
     return chores.find(c => c.id === choreId)?.title ?? 'משימה'
@@ -44,6 +84,21 @@ export default function PlayerDashboard() {
           <Link to="/player/pool">בחר משימה</Link>
         </Button>
       </div>
+
+      {feedItems.length > 0 && (
+        <div className="flex gap-2 overflow-x-auto pb-1">
+          {feedItems.map(item => (
+            <div
+              key={item.id}
+              className="flex items-center gap-1 shrink-0 rounded-full bg-muted px-3 py-1 text-sm"
+            >
+              <span>{item.achievementIcon}</span>
+              <span>{item.profileName}</span>
+              <span className="text-muted-foreground">{item.achievementTitle}</span>
+            </div>
+          ))}
+        </div>
+      )}
 
       {loading ? (
         <div role="status" className="text-center py-8 text-muted-foreground">טוען...</div>

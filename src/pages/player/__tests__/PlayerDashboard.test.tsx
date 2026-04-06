@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
 
@@ -9,15 +9,33 @@ vi.mock('../../../hooks/useChores', () => ({
   useChores: vi.fn(() => ({ chores: [], loading: false, error: null, refetch: vi.fn() })),
 }))
 vi.mock('../../../contexts/AuthContext', () => ({
-  useAuth: () => ({ profile: { id: 'p1', name: 'דנה', coin_balance: 50, trust_level: 2 } }),
+  useAuth: () => ({ profile: { id: 'p1', name: 'דנה', coin_balance: 50, trust_level: 2, family_id: 'f1' } }),
+}))
+vi.mock('../../../hooks/useAchievements', () => ({
+  useAchievements: vi.fn(() => ({
+    achievements: [], earnedIds: new Set(), totalCompletedAllTime: 0,
+    loading: false, error: null, refetch: vi.fn(),
+  })),
+}))
+vi.mock('../../../hooks/useActivityFeed', () => ({
+  useActivityFeed: vi.fn(() => ({ items: [], loading: false, error: null })),
+}))
+vi.mock('../../../lib/checkAchievements', () => ({
+  checkAndAwardAchievements: vi.fn().mockResolvedValue([]),
 }))
 
 import { useChoreAssignments } from '../../../hooks/useChoreAssignments'
 import { useChores } from '../../../hooks/useChores'
+import { useAchievements } from '../../../hooks/useAchievements'
+import { useActivityFeed } from '../../../hooks/useActivityFeed'
+import { checkAndAwardAchievements } from '../../../lib/checkAchievements'
 import PlayerDashboard from '../PlayerDashboard'
 
 const mockUseChoreAssignments = vi.mocked(useChoreAssignments)
 const mockUseChores = vi.mocked(useChores)
+const mockUseAchievements = vi.mocked(useAchievements)
+const mockUseActivityFeed = vi.mocked(useActivityFeed)
+const mockCheckAndAward = vi.mocked(checkAndAwardAchievements)
 
 const fakeChore = {
   id: 'c1', family_id: 'f1', title: 'כלי מטבח', coin_value: 10,
@@ -42,6 +60,12 @@ describe('PlayerDashboard', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockUseChores.mockReturnValue({ chores: [], loading: false, error: null, refetch: vi.fn() })
+    mockUseAchievements.mockReturnValue({
+      achievements: [], earnedIds: new Set(), totalCompletedAllTime: 0,
+      loading: false, error: null, refetch: vi.fn(),
+    })
+    mockUseActivityFeed.mockReturnValue({ items: [], loading: false, error: null })
+    mockCheckAndAward.mockResolvedValue([])
   })
 
   it('shows loading spinner while loading', () => {
@@ -77,5 +101,30 @@ describe('PlayerDashboard', () => {
     mockUseChoreAssignments.mockReturnValue({ assignments: [], loading: false, error: null, refetch: vi.fn() })
     renderDashboard()
     expect(screen.getByRole('link', { name: 'בחר משימה' })).toBeInTheDocument()
+  })
+
+  it('shows activity feed item when present', () => {
+    mockUseChoreAssignments.mockReturnValue({ assignments: [], loading: false, error: null, refetch: vi.fn() })
+    mockUseActivityFeed.mockReturnValue({
+      items: [{
+        id: 'pa1',
+        profileName: 'דנה',
+        profileAvatar: null,
+        achievementIcon: '🏆',
+        achievementTitle: 'משימה ראשונה',
+        earnedAt: '2026-04-05T10:00:00Z',
+      }],
+      loading: false,
+      error: null,
+    })
+    renderDashboard()
+    expect(screen.getByText('🏆')).toBeInTheDocument()
+    expect(screen.getByText('דנה')).toBeInTheDocument()
+  })
+
+  it('calls checkAndAwardAchievements when all data loaded', async () => {
+    mockUseChoreAssignments.mockReturnValue({ assignments: [], loading: false, error: null, refetch: vi.fn() })
+    renderDashboard()
+    await waitFor(() => expect(mockCheckAndAward).toHaveBeenCalled())
   })
 })
