@@ -8,17 +8,27 @@ const {
   mockFrom,
   mockRpc,
   mockStorageFrom,
-} = vi.hoisted(() => ({
-  mockGetSession: vi.fn(),
-  mockSignInWithPassword: vi.fn(),
-  mockSignOut: vi.fn(),
-  mockOnAuthStateChange: vi.fn(() => ({
-    data: { subscription: { unsubscribe: vi.fn() } },
-  })),
-  mockFrom: vi.fn(),
-  mockRpc: vi.fn(),
-  mockStorageFrom: vi.fn(),
-}))
+  mockChannel,
+  mockRemoveChannel,
+} = vi.hoisted(() => {
+  const mockChannelObj = {
+    on: vi.fn().mockReturnThis(),
+    subscribe: vi.fn().mockReturnThis(),
+  }
+  return {
+    mockGetSession: vi.fn(),
+    mockSignInWithPassword: vi.fn(),
+    mockSignOut: vi.fn(),
+    mockOnAuthStateChange: vi.fn(() => ({
+      data: { subscription: { unsubscribe: vi.fn() } },
+    })),
+    mockFrom: vi.fn(),
+    mockRpc: vi.fn(),
+    mockStorageFrom: vi.fn(),
+    mockChannel: vi.fn().mockReturnValue(mockChannelObj),
+    mockRemoveChannel: vi.fn(),
+  }
+})
 
 vi.mock('../../lib/supabase', () => ({
   supabase: {
@@ -33,6 +43,8 @@ vi.mock('../../lib/supabase', () => ({
     storage: {
       from: mockStorageFrom,
     },
+    channel: mockChannel,
+    removeChannel: mockRemoveChannel,
   },
 }))
 
@@ -44,4 +56,6 @@ export {
   mockFrom,
   mockRpc,
   mockStorageFrom,
+  mockChannel,
+  mockRemoveChannel,
 }
