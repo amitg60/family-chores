@@ -18,7 +18,7 @@ vi.mock('../../../hooks/useAchievements', () => ({
   })),
 }))
 vi.mock('../../../hooks/useActivityFeed', () => ({
-  useActivityFeed: vi.fn(() => ({ items: [], loading: false, error: null })),
+  useActivityFeed: vi.fn(() => ({ items: [], loading: false, error: null, refetch: vi.fn() })),
 }))
 vi.mock('../../../lib/checkAchievements', () => ({
   checkAndAwardAchievements: vi.fn().mockResolvedValue([]),
@@ -64,7 +64,7 @@ describe('PlayerDashboard', () => {
       achievements: [], earnedIds: new Set(), totalCompletedAllTime: 0,
       loading: false, error: null, refetch: vi.fn(),
     })
-    mockUseActivityFeed.mockReturnValue({ items: [], loading: false, error: null })
+    mockUseActivityFeed.mockReturnValue({ items: [], loading: false, error: null, refetch: vi.fn() })
     mockCheckAndAward.mockResolvedValue([])
   })
 
@@ -116,6 +116,7 @@ describe('PlayerDashboard', () => {
       }],
       loading: false,
       error: null,
+      refetch: vi.fn(),
     })
     renderDashboard()
     expect(screen.getByText('🏆')).toBeInTheDocument()

@@ -57,7 +57,7 @@ export default function PlayerDashboard() {
     }).then(newlyEarned => {
       if (newlyEarned.length > 0) {
         for (const key of newlyEarned) {
-          const a = achievements.find(ach => ach.id === key)
+          const a = achievements.find(ach => ach.key === key)
           if (a) {
             toast({ title: '🏆 הישג חדש!', description: `${a.icon} ${a.title_he}` })
           }
