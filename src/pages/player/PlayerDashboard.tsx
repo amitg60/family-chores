@@ -49,7 +49,6 @@ export default function PlayerDashboard() {
 
     checkAndAwardAchievements({
       userId: profile.id,
-      familyId: profile.family_id,
       coinBalance: profile.coin_balance,
       completedThisWeek,
       totalCompletedAllTime,
@@ -66,6 +65,7 @@ export default function PlayerDashboard() {
         achievementsRefetch()
       }
     })
+    .catch(err => console.error('[PlayerDashboard] achievement check failed', err))
   }, [profile, loading, assignments, achievementsLoading, achievements, earnedIds, totalCompletedAllTime])
 
   function choreTitle(choreId: string): string {
