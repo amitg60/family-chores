@@ -1,10 +1,12 @@
 import { useEffect } from 'react'
 import { Outlet, NavLink } from 'react-router-dom'
+import type { RealtimePostgresInsertPayload } from '@supabase/supabase-js'
 import { useAuth } from '../../contexts/AuthContext'
 import { Button } from '../ui/button'
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar'
 import { supabase } from '../../lib/supabase'
 import { useToast } from '../../hooks/use-toast'
+import type { PlayerAchievement } from '../../types/database'
 
 export default function PlayerLayout() {
   const { profile, signOut } = useAuth()
@@ -12,13 +14,14 @@ export default function PlayerLayout() {
 
   useEffect(() => {
     if (!profile?.id) return
+    let active = true
 
     const channel = supabase
       .channel('achievement-announcements')
       .on(
         'postgres_changes' as const,
         { event: 'INSERT', schema: 'public', table: 'player_achievements' },
-        async (payload: { new: { user_id: string; achievement_id: string } }) => {
+        async (payload: RealtimePostgresInsertPayload<PlayerAchievement>) => {
           // Own achievements are already toasted by checkAndAwardAchievements in PlayerDashboard
           if (payload.new.user_id === profile.id) return
 
@@ -34,7 +37,7 @@ export default function PlayerLayout() {
             .eq('id', payload.new.user_id)
             .single()
 
-          if (achievement && achiever) {
+          if (active && achievement && achiever) {
             toast({
               title: `${achievement.icon} הישג משפחתי!`,
               description: `${achiever.name}: ${achievement.title_he}`,
@@ -44,7 +47,10 @@ export default function PlayerLayout() {
       )
       .subscribe()
 
-    return () => { supabase.removeChannel(channel) }
+    return () => {
+      active = false
+      supabase.removeChannel(channel)
+    }
   }, [profile?.id])
 
   return (
