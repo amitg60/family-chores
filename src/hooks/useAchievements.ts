@@ -20,7 +20,7 @@ export function useAchievements(userId: string | undefined): UseAchievementsResu
   const [achievements, setAchievements] = useState<AchievementWithStatus[]>([])
   const [earnedIds, setEarnedIds] = useState<Set<string>>(new Set())
   const [totalCompletedAllTime, setTotalCompletedAllTime] = useState(0)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(userId !== undefined)
   const [error, setError] = useState<string | null>(null)
   const mountedRef = useRef(true)
 
