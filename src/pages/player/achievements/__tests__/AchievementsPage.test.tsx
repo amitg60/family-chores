@@ -93,7 +93,16 @@ describe('AchievementsPage', () => {
     })
     renderPage()
     expect(screen.getByText('5 משימות בשבוע')).toBeInTheDocument()
-    expect(screen.getByText('🔒 לא הושג עדיין')).toBeInTheDocument()
+    expect(screen.getByText(/לא הושג עדיין/)).toBeInTheDocument()
+  })
+
+  it('shows empty state when no achievements', () => {
+    mockUseAchievements.mockReturnValue({
+      achievements: [], earnedIds: new Set(),
+      totalCompletedAllTime: 0, loading: false, error: null, refetch: mockRefetch,
+    })
+    renderPage()
+    expect(screen.getByText('אין הישגים עדיין.')).toBeInTheDocument()
   })
 
   it('shows earned count summary', () => {

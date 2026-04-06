@@ -22,12 +22,14 @@ export default function AchievementsPage() {
         <div role="status" className="text-center py-8 text-muted-foreground">טוען...</div>
       ) : error ? (
         <p role="alert" className="text-sm text-destructive">{error}</p>
+      ) : achievements.length === 0 ? (
+        <p className="text-muted-foreground">אין הישגים עדיין.</p>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div role="list" className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {achievements.map(a => {
-            const isEarned = a.earned_at !== null
+            const isEarned = earnedIds.has(a.id)
             return (
-              <Card key={a.id} className={isEarned ? '' : 'opacity-50'}>
+              <Card key={a.id} role="listitem" className={isEarned ? '' : 'opacity-50'}>
                 <CardContent className="py-3 flex items-start gap-3">
                   <span className="text-3xl">{a.icon}</span>
                   <div className="space-y-1 flex-1">
@@ -35,10 +37,12 @@ export default function AchievementsPage() {
                     <p className="text-xs text-muted-foreground">{a.description_he}</p>
                     {isEarned ? (
                       <p className="text-xs text-green-600">
-                        הושג ב‑{new Date(a.earned_at!).toLocaleDateString('he-IL')}
+                        {a.earned_at && `הושג ב‑${new Date(a.earned_at).toLocaleDateString('he-IL')}`}
                       </p>
                     ) : (
-                      <p className="text-xs text-muted-foreground">🔒 לא הושג עדיין</p>
+                      <p className="text-xs text-muted-foreground">
+                        <span aria-hidden="true">🔒</span> לא הושג עדיין
+                      </p>
                     )}
                   </div>
                 </CardContent>
