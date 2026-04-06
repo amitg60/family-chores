@@ -19,6 +19,7 @@ import PlayerCalendarPage from './pages/player/calendar/WeeklyCalendarPage'
 import AdminCalendarPage from './pages/admin/calendar/WeeklyCalendarPage'
 import FeedbackPage from './pages/player/feedback/FeedbackPage'
 import FeedbackDashboard from './pages/admin/feedback/FeedbackDashboard'
+import AchievementsPage from './pages/player/achievements/AchievementsPage'
 
 function RootRedirect() {
   const { profile, session, loading } = useAuth()
@@ -67,6 +68,7 @@ export const router = createBrowserRouter([
       { path: 'store', element: <RewardStorePage /> },
       { path: 'calendar', element: <PlayerCalendarPage /> },
       { path: 'feedback', element: <FeedbackPage /> },
+      { path: 'achievements', element: <AchievementsPage /> },
     ],
   },
   {
