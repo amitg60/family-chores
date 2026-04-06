@@ -1,6 +1,13 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 
+interface PlayerAchievementRow {
+  id: string
+  earned_at: string
+  achievements: { icon: string; title_he: string }
+  profiles: { name: string; avatar_url: string | null }
+}
+
 export interface ActivityItem {
   id: string
   profileName: string
@@ -14,6 +21,7 @@ export interface UseActivityFeedResult {
   items: ActivityItem[]
   loading: boolean
   error: string | null
+  refetch: () => void
 }
 
 export function useActivityFeed(): UseActivityFeedResult {
@@ -39,18 +47,14 @@ export function useActivityFeed(): UseActivityFeedResult {
     if (error) {
       setError(error.message)
     } else {
-      setItems((data ?? []).map((row: Record<string, unknown>) => {
-        const achievement = row.achievements as { icon: string; title_he: string }
-        const profile = row.profiles as { name: string; avatar_url: string | null }
-        return {
-          id: row.id as string,
-          profileName: profile.name,
-          profileAvatar: profile.avatar_url,
-          achievementIcon: achievement.icon,
-          achievementTitle: achievement.title_he,
-          earnedAt: row.earned_at as string,
-        }
-      }))
+      setItems((data as PlayerAchievementRow[] ?? []).map((row) => ({
+        id: row.id,
+        profileName: row.profiles.name,
+        profileAvatar: row.profiles.avatar_url,
+        achievementIcon: row.achievements.icon,
+        achievementTitle: row.achievements.title_he,
+        earnedAt: row.earned_at,
+      })))
     }
     setLoading(false)
   // supabase is a stable singleton — no external dependencies needed
@@ -58,5 +62,5 @@ export function useActivityFeed(): UseActivityFeedResult {
 
   useEffect(() => { fetchFeed() }, [fetchFeed])
 
-  return { items, loading, error }
+  return { items, loading, error, refetch: fetchFeed }
 }
