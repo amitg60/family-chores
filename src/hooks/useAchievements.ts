@@ -20,7 +20,7 @@ export function useAchievements(userId: string | undefined): UseAchievementsResu
   const [achievements, setAchievements] = useState<AchievementWithStatus[]>([])
   const [earnedIds, setEarnedIds] = useState<Set<string>>(new Set())
   const [totalCompletedAllTime, setTotalCompletedAllTime] = useState(0)
-  const [loading, setLoading] = useState(userId !== undefined)
+  const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const mountedRef = useRef(true)
 
@@ -50,7 +50,7 @@ export function useAchievements(userId: string | undefined): UseAchievementsResu
     if (!mountedRef.current) return
 
     if (err1 || err2 || err3) {
-      setError((err1 ?? err2 ?? err3)!.message)
+      setError((err1 ?? err2 ?? err3)?.message ?? 'Unknown error')
       setLoading(false)
       return
     }
