@@ -24,7 +24,7 @@ const mockRefetch = vi.fn()
 
 vi.mock('../../../../hooks/useAchievements', () => ({
   useAchievements: vi.fn(() => ({
-    achievements: [] as AchievementWithStatus[],
+    achievements: [{ id: 'ach1', icon: '⭐', name: 'First', description: '', condition_type: 'chores_completed', condition_value: 1 }] as AchievementWithStatus[],
     earnedIds: new Set(['ach1']),
     totalCompletedAllTime: 1,
     loading: false,
@@ -44,6 +44,8 @@ vi.mock('../../../../hooks/useCoinTransactions', () => ({
 }))
 
 import { useCoinTransactions } from '../../../../hooks/useCoinTransactions'
+import { useAchievements } from '../../../../hooks/useAchievements'
+const mockUseAchievements = vi.mocked(useAchievements)
 import ProfilePage from '../ProfilePage'
 
 const mockUseCoinTransactions = vi.mocked(useCoinTransactions)
@@ -124,5 +126,13 @@ describe('ProfilePage', () => {
     const negative = screen.getByText('−5')
     expect(positive).toHaveClass('text-green-600')
     expect(negative).toHaveClass('text-destructive')
+  })
+
+  it('shows error state on coins tab', () => {
+    mockUseCoinTransactions.mockReturnValue({
+      transactions: [], totalEarned: 0, totalSpent: 0, loading: false, error: 'שגיאה בטעינה',
+    })
+    renderPage()
+    expect(screen.getByRole('alert')).toHaveTextContent('שגיאה בטעינה')
   })
 })

@@ -8,6 +8,8 @@ import { Avatar, AvatarFallback, AvatarImage } from '../../../components/ui/avat
 import { Button } from '../../../components/ui/button'
 import type { CoinReason } from '../../../types/database'
 
+const TOTAL_ACHIEVEMENTS = 7
+
 const REASON_LABEL: Record<CoinReason, string> = {
   chore_completed: 'משימה הושלמה',
   reward_redeemed: 'פדיון פרס',
@@ -27,11 +29,13 @@ export default function ProfilePage() {
 
   const loading = txLoading || achLoading
 
-  const tabs: { key: Tab; label: string }[] = [
-    { key: 'coins', label: '💰 מטבעות' },
-    { key: 'achievements', label: '🏆 הישגים' },
-    { key: 'trades', label: '🤝 מסחר' },
+  const tabs: { key: Tab; icon: string; label: string }[] = [
+    { key: 'coins', icon: '💰', label: 'מטבעות' },
+    { key: 'achievements', icon: '🏆', label: 'הישגים' },
+    { key: 'trades', icon: '🤝', label: 'מסחר' },
   ]
+
+  const earnedAchievements = achievements.filter(a => earnedIds.has(a.id))
 
   return (
     <div className="space-y-4" dir="rtl">
@@ -41,8 +45,8 @@ export default function ProfilePage() {
           <AvatarImage src={profile?.avatar_url ?? undefined} />
           <AvatarFallback className="text-2xl">{profile?.name?.[0] ?? 'מ'}</AvatarFallback>
         </Avatar>
-        <p className="text-xl font-bold">{profile?.name}</p>
-        <p className="text-sm text-muted-foreground">🪙 {profile?.coin_balance ?? 0} מטבעות</p>
+        <p className="text-xl font-bold">{profile?.name ?? ''}</p>
+        <p className="text-sm text-muted-foreground"><span aria-hidden="true">🪙</span> {profile?.coin_balance ?? 0} מטבעות</p>
         <div className="w-full max-w-xs space-y-1">
           <div className="flex justify-between text-xs text-muted-foreground">
             <span>רמת אמון</span>
@@ -58,21 +62,24 @@ export default function ProfilePage() {
       </div>
 
       {/* Tab bar */}
-      <div className="flex rounded-lg border overflow-hidden">
+      <div role="tablist" className="flex rounded-lg border overflow-hidden">
         {tabs.map(tab => (
           <button
             key={tab.key}
+            role="tab"
+            aria-selected={activeTab === tab.key}
             onClick={() => setActiveTab(tab.key)}
             className={`flex-1 py-2 text-sm font-medium transition-colors ${
               activeTab === tab.key ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'
             }`}
           >
-            {tab.label}
+            <span aria-hidden="true">{tab.icon}</span> {tab.label}
           </button>
         ))}
       </div>
 
       {/* Tab content */}
+      <div role="tabpanel">
       {loading ? (
         <div role="status" className="text-center py-8 text-muted-foreground">טוען...</div>
       ) : activeTab === 'coins' ? (
@@ -120,16 +127,16 @@ export default function ProfilePage() {
         <Card>
           <CardContent className="py-4 space-y-3">
             <p className="font-semibold text-center">
-              {earnedIds.size} מתוך {achievements.length || 7} הישגים
+              {earnedAchievements.length} מתוך {TOTAL_ACHIEVEMENTS} הישגים
             </p>
-            {earnedIds.size > 0 && (
+            {earnedAchievements.length > 0 && (
               <div className="flex flex-wrap gap-2 justify-center text-2xl">
-                {achievements.filter(a => earnedIds.has(a.id)).map(a => (
+                {earnedAchievements.map(a => (
                   <span key={a.id}>{a.icon}</span>
                 ))}
               </div>
             )}
-            {earnedIds.size === 0 && (
+            {earnedAchievements.length === 0 && (
               <p className="text-sm text-muted-foreground text-center">טרם הושגו הישגים.</p>
             )}
             <div className="flex justify-center">
@@ -148,6 +155,7 @@ export default function ProfilePage() {
           </CardContent>
         </Card>
       )}
+      </div>
     </div>
   )
 }
