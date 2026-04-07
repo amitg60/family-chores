@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { Outlet, NavLink } from 'react-router-dom'
+import { Outlet, NavLink, Link } from 'react-router-dom'
 import type { RealtimePostgresInsertPayload } from '@supabase/supabase-js'
 import { useAuth } from '../../contexts/AuthContext'
 import { Button } from '../ui/button'
@@ -56,7 +56,7 @@ export default function PlayerLayout() {
   return (
     <div className="min-h-screen bg-background" dir="rtl">
       <header className="border-b bg-card px-4 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-3">
+        <Link to="/player/profile" className="flex items-center gap-3 hover:opacity-80 transition-opacity">
           <Avatar className="h-8 w-8">
             <AvatarImage src={profile?.avatar_url ?? undefined} />
             <AvatarFallback>{profile?.name?.[0] ?? 'מ'}</AvatarFallback>
@@ -67,7 +67,7 @@ export default function PlayerLayout() {
               🪙 {profile?.coin_balance ?? 0} מטבעות
             </span>
           </div>
-        </div>
+        </Link>
         <nav className="hidden md:flex items-center gap-2">
           <NavLink
             to="/player"
@@ -117,6 +117,14 @@ export default function PlayerLayout() {
             }
           >
             הישגים
+          </NavLink>
+          <NavLink
+            to="/player/profile"
+            className={({ isActive }) =>
+              `px-3 py-1.5 rounded text-sm font-medium transition-colors ${isActive ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`
+            }
+          >
+            פרופיל
           </NavLink>
         </nav>
         <Button variant="outline" size="sm" onClick={signOut}>

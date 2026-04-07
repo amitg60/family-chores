@@ -20,6 +20,7 @@ import AdminCalendarPage from './pages/admin/calendar/WeeklyCalendarPage'
 import FeedbackPage from './pages/player/feedback/FeedbackPage'
 import FeedbackDashboard from './pages/admin/feedback/FeedbackDashboard'
 import AchievementsPage from './pages/player/achievements/AchievementsPage'
+import ProfilePage from './pages/player/profile/ProfilePage'
 
 function RootRedirect() {
   const { profile, session, loading } = useAuth()
@@ -69,6 +70,7 @@ export const router = createBrowserRouter([
       { path: 'calendar', element: <PlayerCalendarPage /> },
       { path: 'feedback', element: <FeedbackPage /> },
       { path: 'achievements', element: <AchievementsPage /> },
+      { path: 'profile', element: <ProfilePage /> },
     ],
   },
   {
