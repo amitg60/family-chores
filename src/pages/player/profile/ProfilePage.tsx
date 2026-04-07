@@ -1,0 +1,153 @@
+import { useState } from 'react'
+import { Link } from 'react-router-dom'
+import { useAuth } from '../../../contexts/AuthContext'
+import { useAchievements } from '../../../hooks/useAchievements'
+import { useCoinTransactions } from '../../../hooks/useCoinTransactions'
+import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card'
+import { Avatar, AvatarFallback, AvatarImage } from '../../../components/ui/avatar'
+import { Button } from '../../../components/ui/button'
+import type { CoinReason } from '../../../types/database'
+
+const REASON_LABEL: Record<CoinReason, string> = {
+  chore_completed: 'משימה הושלמה',
+  reward_redeemed: 'פדיון פרס',
+  trade_transfer: 'העברת מסחר',
+  penalty: 'קנס',
+  manual_bonus: 'בונוס',
+  refund: 'החזר',
+}
+
+type Tab = 'coins' | 'achievements' | 'trades'
+
+export default function ProfilePage() {
+  const { profile } = useAuth()
+  const [activeTab, setActiveTab] = useState<Tab>('coins')
+  const { achievements, earnedIds, loading: achLoading } = useAchievements(profile?.id)
+  const { transactions, totalEarned, totalSpent, loading: txLoading, error: txError } = useCoinTransactions(profile?.id)
+
+  const loading = txLoading || achLoading
+
+  const tabs: { key: Tab; label: string }[] = [
+    { key: 'coins', label: '💰 מטבעות' },
+    { key: 'achievements', label: '🏆 הישגים' },
+    { key: 'trades', label: '🤝 מסחר' },
+  ]
+
+  return (
+    <div className="space-y-4" dir="rtl">
+      {/* Header */}
+      <div className="flex flex-col items-center gap-2 py-4">
+        <Avatar className="h-20 w-20">
+          <AvatarImage src={profile?.avatar_url ?? undefined} />
+          <AvatarFallback className="text-2xl">{profile?.name?.[0] ?? 'מ'}</AvatarFallback>
+        </Avatar>
+        <p className="text-xl font-bold">{profile?.name}</p>
+        <p className="text-sm text-muted-foreground">🪙 {profile?.coin_balance ?? 0} מטבעות</p>
+        <div className="w-full max-w-xs space-y-1">
+          <div className="flex justify-between text-xs text-muted-foreground">
+            <span>רמת אמון</span>
+            <span>{profile?.trust_level ?? 0} / 5</span>
+          </div>
+          <div className="h-2 rounded-full bg-muted">
+            <div
+              className="h-2 rounded-full bg-primary transition-all"
+              style={{ width: `${((profile?.trust_level ?? 0) / 5) * 100}%` }}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Tab bar */}
+      <div className="flex rounded-lg border overflow-hidden">
+        {tabs.map(tab => (
+          <button
+            key={tab.key}
+            onClick={() => setActiveTab(tab.key)}
+            className={`flex-1 py-2 text-sm font-medium transition-colors ${
+              activeTab === tab.key ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Tab content */}
+      {loading ? (
+        <div role="status" className="text-center py-8 text-muted-foreground">טוען...</div>
+      ) : activeTab === 'coins' ? (
+        <div className="space-y-4">
+          {txError && <p role="alert" className="text-sm text-destructive">{txError}</p>}
+          <div className="grid grid-cols-2 gap-3">
+            <Card>
+              <CardHeader className="pb-1">
+                <CardTitle className="text-xs text-muted-foreground">סה&quot;כ הרוויח</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-2xl font-bold text-green-600">{totalEarned}</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-1">
+                <CardTitle className="text-xs text-muted-foreground">סה&quot;כ הוציא</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-2xl font-bold text-destructive">{totalSpent}</p>
+              </CardContent>
+            </Card>
+          </div>
+          {transactions.length === 0 ? (
+            <p className="text-muted-foreground text-sm">אין עדיין עסקאות.</p>
+          ) : (
+            <div className="space-y-2">
+              {transactions.map(tx => (
+                <div key={tx.id} className="flex items-center justify-between py-2 border-b last:border-0">
+                  <div>
+                    <p className="text-sm">{REASON_LABEL[tx.reason]}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {new Date(tx.created_at).toLocaleDateString('he-IL')}
+                    </p>
+                  </div>
+                  <span className={`font-semibold text-sm ${tx.amount > 0 ? 'text-green-600' : 'text-destructive'}`}>
+                    {tx.amount > 0 ? `+${tx.amount}` : `−${Math.abs(tx.amount)}`}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : activeTab === 'achievements' ? (
+        <Card>
+          <CardContent className="py-4 space-y-3">
+            <p className="font-semibold text-center">
+              {earnedIds.size} מתוך {achievements.length || 7} הישגים
+            </p>
+            {earnedIds.size > 0 && (
+              <div className="flex flex-wrap gap-2 justify-center text-2xl">
+                {achievements.filter(a => earnedIds.has(a.id)).map(a => (
+                  <span key={a.id}>{a.icon}</span>
+                ))}
+              </div>
+            )}
+            {earnedIds.size === 0 && (
+              <p className="text-sm text-muted-foreground text-center">טרם הושגו הישגים.</p>
+            )}
+            <div className="flex justify-center">
+              <Button asChild variant="outline" size="sm">
+                <Link to="/player/achievements">ראה את כל ההישגים</Link>
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      ) : (
+        <Card className="opacity-50">
+          <CardContent className="py-8 flex flex-col items-center gap-2">
+            <span className="text-4xl"><span aria-hidden="true">🔒</span></span>
+            <p className="text-xl font-semibold">שוק ההחלפות</p>
+            <p className="text-sm text-muted-foreground">תכונה זו תהיה זמינה בקרוב</p>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  )
+}
