@@ -1,6 +1,5 @@
 import { useState, useCallback } from 'react'
 import { useFeedback } from '../../../hooks/useFeedback'
-import type { FeedbackWithProfile } from '../../../hooks/useFeedback'
 import { supabase } from '../../../lib/supabase'
 import { Button } from '../../../components/ui/button'
 import { Badge } from '../../../components/ui/badge'

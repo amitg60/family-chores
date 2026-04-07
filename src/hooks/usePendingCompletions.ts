@@ -51,7 +51,7 @@ export function usePendingCompletions(): UsePendingCompletionsResult {
       .eq('status', 'pending')
       .order('completed_at', { ascending: true })
     if (!mountedRef.current) return
-    if (error) { setError(error.message) } else { setCompletions((data as CompletionWithDetails[]) ?? []) }
+    if (error) { setError(error.message) } else { setCompletions((data as unknown as CompletionWithDetails[]) ?? []) }
     setLoading(false)
   }, [])
 

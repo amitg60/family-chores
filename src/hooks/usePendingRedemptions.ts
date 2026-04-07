@@ -53,7 +53,7 @@ export function usePendingRedemptions(): UsePendingRedemptionsResult {
     if (error) {
       setError(error.message)
     } else {
-      setRedemptions((data as RedemptionWithDetails[]) ?? [])
+      setRedemptions((data as unknown as RedemptionWithDetails[]) ?? [])
     }
     setLoading(false)
   }, [])

@@ -47,7 +47,7 @@ export function useActivityFeed(): UseActivityFeedResult {
     if (error) {
       setError(error.message)
     } else {
-      setItems(((data ?? []) as PlayerAchievementRow[]).map((row) => ({
+      setItems(((data ?? []) as unknown as PlayerAchievementRow[]).map((row) => ({
         id: row.id,
         profileName: row.profiles.name,
         profileAvatar: row.profiles.avatar_url,
