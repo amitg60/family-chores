@@ -7,10 +7,13 @@ import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar'
 import { supabase } from '../../lib/supabase'
 import { useToast } from '../../hooks/use-toast'
 import type { PlayerAchievement } from '../../types/database'
+import { useNotifications } from '../../hooks/useNotifications'
+import NotificationBell from '../notifications/NotificationBell'
 
 export default function PlayerLayout() {
   const { profile, signOut } = useAuth()
   const { toast } = useToast()
+  const { notifications, unreadCount, markRead, markAllRead } = useNotifications()
 
   useEffect(() => {
     if (!profile?.id) return
@@ -127,9 +130,17 @@ export default function PlayerLayout() {
             פרופיל
           </NavLink>
         </nav>
-        <Button variant="outline" size="sm" onClick={signOut}>
-          יציאה
-        </Button>
+        <div className="flex items-center gap-2">
+          <NotificationBell
+            notifications={notifications}
+            unreadCount={unreadCount}
+            markRead={markRead}
+            markAllRead={markAllRead}
+          />
+          <Button variant="outline" size="sm" onClick={signOut}>
+            יציאה
+          </Button>
+        </div>
       </header>
       <main className="p-4 max-w-4xl mx-auto">
         <Outlet />
