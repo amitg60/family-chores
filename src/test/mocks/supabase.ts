@@ -3,6 +3,7 @@ import { vi } from 'vitest'
 const {
   mockGetSession,
   mockSignInWithPassword,
+  mockSignUp,
   mockSignOut,
   mockOnAuthStateChange,
   mockFrom,
@@ -18,6 +19,7 @@ const {
   return {
     mockGetSession: vi.fn(),
     mockSignInWithPassword: vi.fn(),
+    mockSignUp: vi.fn(),
     mockSignOut: vi.fn(),
     mockOnAuthStateChange: vi.fn(() => ({
       data: { subscription: { unsubscribe: vi.fn() } },
@@ -35,6 +37,7 @@ vi.mock('../../lib/supabase', () => ({
     auth: {
       getSession: mockGetSession,
       signInWithPassword: mockSignInWithPassword,
+      signUp: mockSignUp,
       signOut: mockSignOut,
       onAuthStateChange: mockOnAuthStateChange,
     },
@@ -51,6 +54,7 @@ vi.mock('../../lib/supabase', () => ({
 export {
   mockGetSession,
   mockSignInWithPassword,
+  mockSignUp,
   mockSignOut,
   mockOnAuthStateChange,
   mockFrom,
