@@ -40,7 +40,7 @@ BEGIN
 END;
 $$;
 
-CREATE TRIGGER trg_notify_chore_assigned
+CREATE OR REPLACE TRIGGER trg_notify_chore_assigned
   AFTER INSERT ON chore_assignments
   FOR EACH ROW EXECUTE FUNCTION notify_chore_assigned();
 
@@ -76,7 +76,7 @@ BEGIN
 END;
 $$;
 
-CREATE TRIGGER trg_notify_completion_reviewed
+CREATE OR REPLACE TRIGGER trg_notify_completion_reviewed
   AFTER UPDATE ON chore_completions
   FOR EACH ROW EXECUTE FUNCTION notify_completion_reviewed();
 
@@ -103,7 +103,7 @@ BEGIN
 END;
 $$;
 
-CREATE TRIGGER trg_notify_trade_received
+CREATE OR REPLACE TRIGGER trg_notify_trade_received
   AFTER INSERT ON trade_offers
   FOR EACH ROW EXECUTE FUNCTION notify_trade_received();
 
@@ -136,7 +136,7 @@ BEGIN
 END;
 $$;
 
-CREATE TRIGGER trg_notify_trade_resolved
+CREATE OR REPLACE TRIGGER trg_notify_trade_resolved
   AFTER UPDATE ON trade_offers
   FOR EACH ROW EXECUTE FUNCTION notify_trade_resolved();
 
@@ -174,7 +174,7 @@ BEGIN
 END;
 $$;
 
-CREATE TRIGGER trg_notify_redemption_resolved
+CREATE OR REPLACE TRIGGER trg_notify_redemption_resolved
   AFTER UPDATE ON reward_redemptions
   FOR EACH ROW EXECUTE FUNCTION notify_redemption_resolved();
 
@@ -210,7 +210,7 @@ BEGIN
 END;
 $$;
 
-CREATE TRIGGER trg_notify_proposal_resolved
+CREATE OR REPLACE TRIGGER trg_notify_proposal_resolved
   AFTER UPDATE ON chores
   FOR EACH ROW EXECUTE FUNCTION notify_proposal_resolved();
 
@@ -228,14 +228,14 @@ BEGIN
   PERFORM insert_notification(
     NEW.user_id, v_family_id, 'penalty_applied',
     'הוטל עליך קנס',
-    'נוכו ' || NEW.coin_deduction || ' מטבעות. סיבה: ' || NEW.reason,
+    'נוכו ' || NEW.coin_deduction::text || ' מטבעות. סיבה: ' || NEW.reason,
     NEW.id
   );
   RETURN NEW;
 END;
 $$;
 
-CREATE TRIGGER trg_notify_penalty_applied
+CREATE OR REPLACE TRIGGER trg_notify_penalty_applied
   AFTER INSERT ON penalties
   FOR EACH ROW EXECUTE FUNCTION notify_penalty_applied();
 
@@ -264,6 +264,6 @@ BEGIN
 END;
 $$;
 
-CREATE TRIGGER trg_notify_achievement_earned
+CREATE OR REPLACE TRIGGER trg_notify_achievement_earned
   AFTER INSERT ON player_achievements
   FOR EACH ROW EXECUTE FUNCTION notify_achievement_earned();
