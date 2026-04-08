@@ -12,13 +12,16 @@ export type CoinReason = 'chore_completed' | 'reward_redeemed' | 'trade_transfer
 export type AchievementTrigger = 'chore_count' | 'coin_total' | 'trade_count' | 'trust_level' | 'weekly_top' | 'streak'
 export type NotificationType =
   | 'chore_assigned' | 'completion_reviewed' | 'trade_received' | 'trade_resolved'
-  | 'redemption_resolved' | 'proposal_resolved' | 'penalty_applied' | 'achievement_earned' | 'reminder'
+  | 'redemption_resolved' | 'proposal_resolved' | 'penalty_applied' | 'achievement_earned'
+  | 'reminder' | 'alias_vote_requested' | 'alias_vote_resolved'
 export type FeedbackCategory = 'bug' | 'improvement' | 'love' | 'bothers'
 export type FeedbackMood = 'happy' | 'neutral' | 'frustrated'
 
 export interface Family {
   id: string
   name: string
+  team_name: string | null
+  avatar_url: string | null
   created_at: string
 }
 
@@ -193,4 +196,35 @@ export interface Feedback {
   noted: boolean
   resolved: boolean
   created_at: string
+}
+
+export interface FamilyInvite {
+  id: string
+  family_id: string
+  created_by: string
+  role: UserRole
+  token: string
+  expires_at: string
+  used_at: string | null
+  used_by: string | null
+  created_at: string
+}
+
+export interface FamilyAliasProposal {
+  id: string
+  family_id: string
+  proposed_by: string
+  proposed_alias: string
+  expires_at: string
+  status: 'pending' | 'accepted' | 'rejected'
+  resolved_at: string | null
+  created_at: string
+}
+
+export interface FamilyAliasVote {
+  id: string
+  proposal_id: string
+  user_id: string
+  vote: boolean
+  voted_at: string
 }
