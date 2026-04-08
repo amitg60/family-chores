@@ -23,6 +23,7 @@ Multi-family isolation is already enforced by existing RLS policies (`family_id 
 - Admin can invite both players (children) and co-admins (parents)
 - Admin self-service signup creates a new isolated family
 - Family has an optional fun team alias (e.g., "כהן השולטים") for identity
+- Any family member (admin or player) can upload or replace the family profile picture
 - No changes to existing RLS policies — they already correctly enforce family isolation
 
 ---
@@ -48,10 +49,13 @@ None of these are in scope for this spec. They should be designed as a dedicated
 #### 1.1 Extend `families` table
 
 ```sql
-ALTER TABLE families ADD COLUMN team_name TEXT NULL;
+ALTER TABLE families ADD COLUMN team_name  TEXT NULL;
+ALTER TABLE families ADD COLUMN avatar_url TEXT NULL;
 ```
 
 The `team_name` is an optional fun alias (e.g., "כהן השולטים") shown alongside the family name on the join page and in the admin dashboard.
+
+The `avatar_url` is the public URL of the family profile picture stored in the `family-avatars` Supabase Storage bucket.
 
 #### 1.2 New table: `family_invites`
 
@@ -227,7 +231,64 @@ Add a small link below the submit button:
 
 ---
 
-## 6. File Summary
+## 6. Family Profile Picture
+
+### Storage
+
+A new Supabase Storage bucket `family-avatars` with the following properties:
+- **Public bucket** — uploaded images are accessible via a plain public URL (no signed URLs needed; family avatars are not sensitive)
+- File path pattern: `{family_id}/avatar.jpg` — overwriting the same path replaces the previous photo
+- RLS on storage: any authenticated user whose `get_my_family_id() = family_id` can upload and read
+
+### Upload Flow
+
+Any family member (admin or player) can upload the family picture from:
+- **Admin:** a "תמונת המשפחה" section within `PlayersPage` (alongside family name and team name display)
+- **Player:** their `ProfilePage` (already exists at `/player/profile`) — add a "תמונת המשפחה" card
+
+Both use the same `FamilyAvatarUpload` component.
+
+**`src/components/shared/FamilyAvatarUpload.tsx`** (shared between admin and player):
+- Displays current family avatar (or a placeholder icon if none set)
+- File input (image only) with a camera/edit icon overlay
+- On file select:
+  1. Compress + strip EXIF client-side via `browser-image-compression` (same pattern as completion photos)
+  2. Upload to `family-avatars/{family_id}/avatar.jpg` via `supabase.storage.from('family-avatars').upload(..., { upsert: true })`
+  3. Get the public URL via `supabase.storage.from('family-avatars').getPublicUrl(...)`
+  4. UPDATE `families SET avatar_url = <public_url>` where `id = family_id`
+- Shows upload progress and success/error state
+
+### Display
+
+The family avatar is shown in the header of both layouts:
+- **`AdminLayout`:** small circular avatar next to the family name in the top-left
+- **`PlayerLayout`:** small circular avatar next to the family name (family name is not currently shown — add it alongside the avatar)
+
+Both layouts fetch the family row on mount via a lightweight `useFamily` hook:
+
+**`src/hooks/useFamily.ts`**
+```typescript
+// Returns { family: Family | null, loading: boolean }
+// Queries: supabase.from('families').select('*').eq('id', profile.family_id).single()
+```
+
+The `Family` type already exists in `src/types/database.ts` as `{ id, name, created_at }` — add `team_name` and `avatar_url` fields.
+
+### File additions for this section
+
+| File | Action |
+|---|---|
+| `supabase/migrations/013_family_onboarding.sql` | bucket creation + storage RLS (added to existing migration) |
+| `src/hooks/useFamily.ts` | New |
+| `src/components/shared/FamilyAvatarUpload.tsx` | New |
+| `src/components/layout/AdminLayout.tsx` | Modified (show family avatar + name) |
+| `src/components/layout/PlayerLayout.tsx` | Modified (show family avatar + name) |
+| `src/pages/admin/players/PlayersPage.tsx` | Modified (add FamilyAvatarUpload) |
+| `src/pages/player/profile/ProfilePage.tsx` | Modified (add FamilyAvatarUpload) |
+
+---
+
+## 7. File Summary
 
 | File | Action |
 |---|---|
@@ -235,10 +296,16 @@ Add a small link below the submit button:
 | `src/pages/SignupPage.tsx` | New |
 | `src/pages/JoinPage.tsx` | New |
 | `src/components/admin/InviteDialog.tsx` | New |
+| `src/components/shared/FamilyAvatarUpload.tsx` | New |
 | `src/hooks/useInvites.ts` | New |
-| `src/pages/admin/players/PlayersPage.tsx` | Modified (add invite button + pending list) |
+| `src/hooks/useFamily.ts` | New |
+| `src/pages/admin/players/PlayersPage.tsx` | Modified (invite button + pending list + family avatar) |
+| `src/pages/player/profile/ProfilePage.tsx` | Modified (add family avatar upload) |
+| `src/components/layout/AdminLayout.tsx` | Modified (show family avatar + name) |
+| `src/components/layout/PlayerLayout.tsx` | Modified (show family avatar + name) |
 | `src/pages/LoginPage.tsx` | Modified (add signup link) |
 | `src/router.tsx` | Modified (add /join and /signup routes) |
+| `src/types/database.ts` | Modified (add team_name, avatar_url to Family type) |
 
 ---
 
