@@ -11,6 +11,7 @@ ALTER TABLE families ADD COLUMN IF NOT EXISTS team_name  TEXT NULL;
 ALTER TABLE families ADD COLUMN IF NOT EXISTS avatar_url TEXT NULL;
 
 -- Allow admins to update their own family row
+DROP POLICY IF EXISTS "families: admins can update their own family" ON families;
 CREATE POLICY "families: admins can update their own family"
   ON families FOR UPDATE
   USING (id = get_my_family_id() AND is_admin());
@@ -50,7 +51,8 @@ CREATE POLICY "family_invites: admins can delete their family invites"
 
 -- generate_invite_token: admin creates a new single-use invite
 CREATE OR REPLACE FUNCTION generate_invite_token(p_role user_role)
-RETURNS text LANGUAGE plpgsql SECURITY DEFINER AS $$
+RETURNS text LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public, pg_temp AS $$
 DECLARE
   v_token     text;
   v_family_id uuid;
@@ -71,7 +73,8 @@ $$;
 
 -- validate_invite_token: public — returns family info or error reason
 CREATE OR REPLACE FUNCTION validate_invite_token(p_token text)
-RETURNS json LANGUAGE plpgsql SECURITY DEFINER AS $$
+RETURNS json LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public, pg_temp AS $$
 DECLARE
   v_invite      family_invites%ROWTYPE;
   v_family      families%ROWTYPE;
@@ -100,11 +103,15 @@ $$;
 
 -- redeem_invite: called after auth.signUp succeeds; creates profile atomically
 CREATE OR REPLACE FUNCTION redeem_invite(p_token text, p_name text, p_user_id uuid)
-RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public, pg_temp AS $$
 DECLARE
   v_invite family_invites%ROWTYPE;
 BEGIN
   SELECT * INTO v_invite FROM family_invites WHERE token = p_token FOR UPDATE;
+  IF p_user_id <> auth.uid() THEN
+    RAISE EXCEPTION 'unauthorized';
+  END IF;
   IF NOT FOUND THEN
     RAISE EXCEPTION 'invite_not_found';
   END IF;
@@ -125,7 +132,8 @@ CREATE OR REPLACE FUNCTION create_family_and_admin(
   p_family_name text,
   p_team_name   text,
   p_admin_name  text
-) RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
+) RETURNS void LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public, pg_temp AS $$
 DECLARE
   v_family_id uuid;
   v_team_name text;
@@ -181,7 +189,12 @@ CREATE POLICY "alias_votes: family members can view"
 
 CREATE POLICY "alias_votes: members can insert their own vote"
   ON family_alias_votes FOR INSERT
-  WITH CHECK (user_id = auth.uid());
+  WITH CHECK (
+    user_id = auth.uid()
+    AND proposal_id IN (
+      SELECT id FROM family_alias_proposals WHERE family_id = get_my_family_id()
+    )
+  );
 
 -- ============================================================
 -- PART 6: Alias voting RPCs
@@ -189,7 +202,8 @@ CREATE POLICY "alias_votes: members can insert their own vote"
 
 -- check_alias_vote_outcome: internal helper — resolves early if majority reached
 CREATE OR REPLACE FUNCTION check_alias_vote_outcome(p_proposal_id uuid)
-RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public, pg_temp AS $$
 DECLARE
   v_proposal   family_alias_proposals%ROWTYPE;
   v_total      int;
@@ -233,7 +247,8 @@ $$;
 
 -- propose_alias_change: any family member can open a vote
 CREATE OR REPLACE FUNCTION propose_alias_change(p_new_alias text)
-RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public, pg_temp AS $$
 DECLARE
   v_family_id   uuid;
   v_proposal_id uuid;
@@ -273,12 +288,16 @@ $$;
 
 -- cast_alias_vote: any family member casts their vote
 CREATE OR REPLACE FUNCTION cast_alias_vote(p_proposal_id uuid, p_vote boolean)
-RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public, pg_temp AS $$
 DECLARE
   v_proposal family_alias_proposals%ROWTYPE;
 BEGIN
   SELECT * INTO v_proposal FROM family_alias_proposals WHERE id = p_proposal_id;
   IF NOT FOUND THEN
+    RAISE EXCEPTION 'proposal_not_found';
+  END IF;
+  IF v_proposal.family_id <> get_my_family_id() THEN
     RAISE EXCEPTION 'proposal_not_found';
   END IF;
   IF v_proposal.status <> 'pending' THEN
@@ -298,12 +317,14 @@ $$;
 
 -- resolve_alias_proposal: called by client after 1-hour timer expires; idempotent
 CREATE OR REPLACE FUNCTION resolve_alias_proposal(p_proposal_id uuid)
-RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public, pg_temp AS $$
 DECLARE
   v_proposal family_alias_proposals%ROWTYPE;
 BEGIN
   SELECT * INTO v_proposal FROM family_alias_proposals WHERE id = p_proposal_id;
   IF NOT FOUND OR v_proposal.status <> 'pending' THEN RETURN; END IF;
+  IF v_proposal.family_id <> get_my_family_id() THEN RETURN; END IF;
   IF v_proposal.expires_at > now() THEN
     RAISE EXCEPTION 'proposal_not_expired_yet';
   END IF;
@@ -323,7 +344,15 @@ END;
 $$;
 
 -- ============================================================
--- PART 7: Storage bucket for family avatars
+-- PART 7: Prevent concurrent alias proposals per family (TOCTOU guard)
+-- ============================================================
+-- Prevent concurrent proposals for the same family
+CREATE UNIQUE INDEX IF NOT EXISTS uq_one_pending_alias_per_family
+  ON family_alias_proposals (family_id)
+  WHERE status = 'pending';
+
+-- ============================================================
+-- PART 8: Storage bucket for family avatars
 -- ============================================================
 INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 VALUES (
