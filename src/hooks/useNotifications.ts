@@ -29,7 +29,7 @@ export function useNotifications(): UseNotificationsResult {
       return
     }
     setLoading(true)
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('notifications')
       .select('*')
       .eq('user_id', profile.id)
@@ -37,6 +37,7 @@ export function useNotifications(): UseNotificationsResult {
       .order('created_at', { ascending: false })
       .limit(50)
     if (!mountedRef.current) return
+    if (error) console.error('Failed to fetch notifications:', error.message)
     setNotifications((data as Notification[]) ?? [])
     setLoading(false)
   }, [profile?.id])
@@ -65,7 +66,8 @@ export function useNotifications(): UseNotificationsResult {
   }, [profile?.id])
 
   const markRead = useCallback(async (id: string) => {
-    await supabase.from('notifications').update({ read: true }).eq('id', id)
+    const { error } = await supabase.from('notifications').update({ read: true }).eq('id', id)
+    if (error) { console.error('Failed to mark notification as read:', error.message); return }
     if (mountedRef.current) {
       setNotifications(prev => prev.filter(n => n.id !== id))
     }
@@ -73,11 +75,12 @@ export function useNotifications(): UseNotificationsResult {
 
   const markAllRead = useCallback(async () => {
     if (!profile?.id) return
-    await supabase
+    const { error } = await supabase
       .from('notifications')
       .update({ read: true })
       .eq('user_id', profile.id)
       .eq('read', false)
+    if (error) { console.error('Failed to mark all notifications as read:', error.message); return }
     if (mountedRef.current) {
       setNotifications([])
     }

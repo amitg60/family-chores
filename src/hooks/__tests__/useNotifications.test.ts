@@ -122,4 +122,12 @@ describe('useNotifications', () => {
     unmount()
     expect(mockRemoveChannel).toHaveBeenCalled()
   })
+
+  it('shows empty notifications when fetch fails', async () => {
+    setupFetchMock([], { message: 'DB error' })
+    const { result } = renderHook(() => useNotifications())
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(result.current.notifications).toEqual([])
+    expect(result.current.unreadCount).toBe(0)
+  })
 })

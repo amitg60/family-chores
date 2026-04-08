@@ -1,0 +1,13 @@
+
+> family-chores@0.0.0 test
+> vitest run
+
+
+ RUN  v4.1.2 D:/Claude_Projects/family-chores
+
+
+ Test Files  38 passed (38)
+      Tests  217 passed (217)
+   Start at  16:35:59
+   Duration  17.13s (transform 1.41s, setup 4.25s, import 9.04s, tests 20.79s, environment 40.74s)
+
