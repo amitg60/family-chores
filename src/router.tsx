@@ -19,6 +19,7 @@ import PlayerCalendarPage from './pages/player/calendar/WeeklyCalendarPage'
 import AdminCalendarPage from './pages/admin/calendar/WeeklyCalendarPage'
 import FeedbackPage from './pages/player/feedback/FeedbackPage'
 import FeedbackDashboard from './pages/admin/feedback/FeedbackDashboard'
+import PlayersPage from './pages/admin/players/PlayersPage'
 import AchievementsPage from './pages/player/achievements/AchievementsPage'
 import ProfilePage from './pages/player/profile/ProfilePage'
 
@@ -53,6 +54,7 @@ export const router = createBrowserRouter([
       { path: 'redemptions', element: <RedemptionsPage /> },
       { path: 'calendar', element: <AdminCalendarPage /> },
       { path: 'feedback', element: <FeedbackDashboard /> },
+      { path: 'players', element: <PlayersPage /> },
     ],
   },
   {
