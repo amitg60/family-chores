@@ -56,9 +56,9 @@ ALTER TABLE families ADD COLUMN avatar_url TEXT NULL;
 The `team_name` is an optional fun alias (e.g., "כהן השולטים") shown alongside the family name on the join page and in the admin dashboard.
 
 **Ownership rules for `team_name`:**
-- Set by the founding admin at family creation time (signup form).
-- After creation, only admins can edit it. The edit UI in `PlayersPage` always pre-fills the current value, so any co-admin editing it sees the existing alias before overwriting — no silent conflicts.
-- Players can see the alias but cannot edit it.
+- Set by the founding admin at family creation time (signup form) — this is a direct write, no vote needed.
+- **After creation, no one can edit it directly.** Any family member (admin or player) who wants to change it must go through the alias voting mechanism (Section 7).
+- All family members see the alias as read-only with a **"שנה כינוי"** button that opens the voting dialog.
 - On the join page (`/join`), the alias is displayed as read-only context. Joiners cannot set or change it.
 
 The `avatar_url` is the public URL of the family profile picture stored in the `family-avatars` Supabase Storage bucket.
@@ -251,7 +251,7 @@ A new Supabase Storage bucket `family-avatars` with the following properties:
 Any family member (admin or player) can upload the family picture from:
 - **Admin:** a "הגדרות משפחה" section within `PlayersPage` showing:
   - Family name (read-only display)
-  - Team alias — editable inline text field, pre-filled with the current `team_name`. Shows `"עדיין לא נבחר כינוי"` as placeholder if not yet set. Only admins see this field as editable; players see it as read-only.
+  - Team alias — read-only display with a **"שנה כינוי"** button (opens `AliasProposalDialog`). Shows `"עדיין לא נבחר כינוי"` if not yet set.
   - Family avatar upload (`FamilyAvatarUpload` component)
 - **Player:** their `ProfilePage` (already exists at `/player/profile`) — add a "תמונת המשפחה" card showing the current avatar (editable) and the family name + alias (read-only)
 
@@ -302,7 +302,149 @@ The `Family` type already exists in `src/types/database.ts` as `{ id, name, crea
 
 ---
 
-## 7. File Summary
+## 7. Family Alias Voting
+
+Any family member (admin or player) can propose a new alias. The change only takes effect if an absolute majority of family members vote yes within 1 hour.
+
+### Voting Rules
+
+- **Proposer auto-votes yes** when they submit the proposal.
+- **Majority = yes_votes > total_family_members ÷ 2** (absolute majority). Abstentions effectively count as no.
+- **1-hour voting window** — after expiry, votes are counted and the outcome is applied.
+- **Early acceptance**: if yes votes exceed the majority threshold before 1 hour, the alias is accepted immediately.
+- **Early rejection**: if the remaining uncast votes can no longer flip the result to yes, rejected immediately.
+- **Tie or no majority** after 1 hour → alias rejected, current alias unchanged.
+- **One active proposal per family at a time** — the propose button is disabled while a vote is pending.
+
+### DB additions (added to `013_family_onboarding.sql`)
+
+#### New notification types
+
+```sql
+ALTER TYPE notification_type ADD VALUE 'alias_vote_requested';
+ALTER TYPE notification_type ADD VALUE 'alias_vote_resolved';
+```
+
+#### New table: `family_alias_proposals`
+
+```sql
+CREATE TABLE family_alias_proposals (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  family_id       UUID NOT NULL REFERENCES families(id) ON DELETE CASCADE,
+  proposed_by     UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  proposed_alias  TEXT NOT NULL,
+  expires_at      TIMESTAMPTZ NOT NULL,  -- created_at + 1 hour
+  status          TEXT NOT NULL DEFAULT 'pending'
+                  CHECK (status IN ('pending', 'accepted', 'rejected')),
+  resolved_at     TIMESTAMPTZ NULL,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+```
+
+#### New table: `family_alias_votes`
+
+```sql
+CREATE TABLE family_alias_votes (
+  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  proposal_id  UUID NOT NULL REFERENCES family_alias_proposals(id) ON DELETE CASCADE,
+  user_id      UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  vote         BOOLEAN NOT NULL,  -- true = yes, false = no
+  voted_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (proposal_id, user_id)
+);
+```
+
+RLS:
+- Family members can SELECT proposals and votes for their own family.
+- Family members can INSERT their own vote (one per proposal, enforced by UNIQUE constraint).
+- No UPDATE or DELETE on votes — votes are immutable once cast.
+
+#### RPC: `propose_alias_change(p_new_alias text)` → `void`
+
+SECURITY DEFINER. Steps:
+1. Check no `pending` proposal exists for `get_my_family_id()` — error `'active_proposal_exists'` if one does.
+2. INSERT into `family_alias_proposals` with `expires_at = now() + interval '1 hour'`.
+3. Auto-cast proposer's yes vote: INSERT into `family_alias_votes` with `vote = true`.
+4. Call `check_alias_vote_outcome(proposal_id)` to handle the edge case of a 1-member family (immediate resolution).
+5. INSERT `alias_vote_requested` notifications for all other family members.
+
+#### RPC: `cast_alias_vote(p_proposal_id uuid, p_vote boolean)` → `void`
+
+SECURITY DEFINER. Steps:
+1. Fetch proposal — error if not found, not `pending`, or `expires_at < now()`.
+2. INSERT into `family_alias_votes` — DB UNIQUE constraint prevents double-voting.
+3. Call `check_alias_vote_outcome(p_proposal_id)` to evaluate early resolution.
+
+#### RPC: `check_alias_vote_outcome(p_proposal_id uuid)` → `void`
+
+SECURITY DEFINER. Called internally by `propose_alias_change`, `cast_alias_vote`, and `resolve_alias_proposal`. Logic:
+
+```
+total_members  = COUNT of profiles WHERE family_id = proposal.family_id
+yes_votes      = COUNT of votes WHERE vote = true
+no_votes       = COUNT of votes WHERE vote = false
+majority_threshold = total_members / 2  (integer division, e.g. 4→2, 3→1, 2→1)
+
+IF yes_votes > majority_threshold:
+  → status = 'accepted': UPDATE families SET team_name = proposed_alias
+  → send 'alias_vote_resolved' notifications to all family members (result: accepted)
+ELSE IF no_votes >= total_members - yes_votes  (remaining votes can't flip result):
+  → status = 'rejected'
+  → send 'alias_vote_resolved' notifications to all family members (result: rejected)
+-- else: outcome still undecided, do nothing
+```
+
+Also UPDATE `family_alias_proposals SET status, resolved_at = now()` when resolved.
+
+#### RPC: `resolve_alias_proposal(p_proposal_id uuid)` → `void`
+
+SECURITY DEFINER. Called by the client when the 1-hour timer expires (via a `useEffect` countdown in the voting UI). Checks `expires_at < now()`, then calls `check_alias_vote_outcome`. Idempotent — safe to call multiple times.
+
+### UI: Proposing a new alias
+
+The team alias field in both **`PlayersPage`** (admins) and **`ProfilePage`** (players) gains a **"שנה כינוי"** button next to the current alias display.
+
+Clicking it opens **`AliasProposalDialog`** (`src/components/shared/AliasProposalDialog.tsx`):
+- Shows current alias
+- Input for proposed new alias
+- Submit button: **"הצעת שינוי"**
+- If a vote is already pending: shows the active proposal and its current vote count instead of the input
+- Calls `propose_alias_change(p_new_alias)` RPC on submit
+
+### UI: Voting banner
+
+A **`AliasVoteBanner`** component (`src/components/shared/AliasVoteBanner.tsx`) is shown persistently at the top of the main content area in both `AdminLayout` and `PlayerLayout` when there is an active pending proposal for the family.
+
+Banner content:
+- `"הצעה לכינוי חדש: [proposed_alias] — מוצע על ידי [proposer_name]"`
+- Current vote tally: `"תומכים: X | מתנגדים: Y | לא הצביעו: Z"`
+- Countdown timer: `"נותרו X:XX דקות"`
+- **כן** and **לא** vote buttons — disabled after the member has already voted
+- If the current user is the proposer, show their auto-yes vote as already cast
+
+**`useAliasVote` hook** (`src/hooks/useAliasVote.ts`):
+- Fetches the active pending proposal for `profile.family_id`
+- Subscribes to realtime changes on `family_alias_proposals` and `family_alias_votes` filtered to the family
+- Provides `{ proposal, votes, castVote, resolveIfExpired, loading }`
+- When `expires_at` passes (checked via `setInterval`), calls `resolve_alias_proposal` RPC
+
+Both layouts mount `<AliasVoteBanner>` — it renders nothing when there is no pending proposal.
+
+### File additions for this section
+
+| File | Action |
+|---|---|
+| `src/hooks/useAliasVote.ts` | New |
+| `src/components/shared/AliasProposalDialog.tsx` | New |
+| `src/components/shared/AliasVoteBanner.tsx` | New |
+| `src/components/layout/AdminLayout.tsx` | Modified (mount AliasVoteBanner) |
+| `src/components/layout/PlayerLayout.tsx` | Modified (mount AliasVoteBanner) |
+| `src/pages/admin/players/PlayersPage.tsx` | Modified (add "שנה כינוי" button) |
+| `src/pages/player/profile/ProfilePage.tsx` | Modified (add "שנה כינוי" button) |
+
+---
+
+## 8. File Summary
 
 | File | Action |
 |---|---|
@@ -311,22 +453,25 @@ The `Family` type already exists in `src/types/database.ts` as `{ id, name, crea
 | `src/pages/JoinPage.tsx` | New |
 | `src/components/admin/InviteDialog.tsx` | New |
 | `src/components/shared/FamilyAvatarUpload.tsx` | New |
+| `src/components/shared/AliasProposalDialog.tsx` | New |
+| `src/components/shared/AliasVoteBanner.tsx` | New |
 | `src/hooks/useInvites.ts` | New |
 | `src/hooks/useFamily.ts` | New |
-| `src/pages/admin/players/PlayersPage.tsx` | Modified (invite button + pending list + family avatar) |
-| `src/pages/player/profile/ProfilePage.tsx` | Modified (add family avatar upload) |
-| `src/components/layout/AdminLayout.tsx` | Modified (show family avatar + name) |
-| `src/components/layout/PlayerLayout.tsx` | Modified (show family avatar + name) |
+| `src/hooks/useAliasVote.ts` | New |
+| `src/pages/admin/players/PlayersPage.tsx` | Modified (invite button + pending list + family avatar + alias proposal) |
+| `src/pages/player/profile/ProfilePage.tsx` | Modified (family avatar upload + alias proposal) |
+| `src/components/layout/AdminLayout.tsx` | Modified (family avatar + name + AliasVoteBanner) |
+| `src/components/layout/PlayerLayout.tsx` | Modified (family avatar + name + AliasVoteBanner) |
 | `src/pages/LoginPage.tsx` | Modified (add signup link) |
 | `src/router.tsx` | Modified (add /join and /signup routes) |
 | `src/types/database.ts` | Modified (add team_name, avatar_url to Family type) |
 
 ---
 
-## 7. Out of Scope
+## 9. Out of Scope
 
 - Password reset / forgot password flow
 - Email verification (Supabase sends a confirmation email by default — can be disabled in Supabase dashboard for now)
-- Admin editing family name or team name after creation (can be added to admin settings later)
+- Voting on changes to family name (only alias/team name is votable)
 - Removing a family member from the family
 - Transferring admin role to another member
