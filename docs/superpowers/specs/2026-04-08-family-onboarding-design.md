@@ -250,13 +250,18 @@ Both use the same `FamilyAvatarUpload` component.
 
 **`src/components/shared/FamilyAvatarUpload.tsx`** (shared between admin and player):
 - Displays current family avatar (or a placeholder icon if none set)
-- File input (image only) with a camera/edit icon overlay
-- On file select:
-  1. Compress + strip EXIF client-side via `browser-image-compression` (same pattern as completion photos)
+- File input with `accept="image/jpeg,image/png,image/webp"` — no other file types accepted
+- On file select, **client-side validation before any upload:**
+  - Allowed types: `image/jpeg`, `image/png`, `image/webp` only. Show error `"סוג קובץ לא נתמך — יש להעלות תמונה בפורמט JPG, PNG או WebP"` and abort if rejected.
+  - Maximum file size: **5 MB** before compression. Show error `"הקובץ גדול מדי — הגודל המרבי הוא 5MB"` and abort if exceeded.
+- On validation pass:
+  1. Compress + strip EXIF client-side via `browser-image-compression` (max output size 500 KB, same pattern as completion photos)
   2. Upload to `family-avatars/{family_id}/avatar.jpg` via `supabase.storage.from('family-avatars').upload(..., { upsert: true })`
   3. Get the public URL via `supabase.storage.from('family-avatars').getPublicUrl(...)`
   4. UPDATE `families SET avatar_url = <public_url>` where `id = family_id`
 - Shows upload progress and success/error state
+
+**Storage bucket size limit (server-side enforcement):** Configure the `family-avatars` bucket in Supabase with a maximum file size of **1 MB** (post-compression). This acts as a second line of defence if the client-side compression step fails. The bucket is configured via the migration using `storage.buckets` upsert with `file_size_limit = 1048576` and `allowed_mime_types = ['image/jpeg', 'image/png', 'image/webp']`.
 
 ### Display
 
