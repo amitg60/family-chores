@@ -55,6 +55,12 @@ ALTER TABLE families ADD COLUMN avatar_url TEXT NULL;
 
 The `team_name` is an optional fun alias (e.g., "כהן השולטים") shown alongside the family name on the join page and in the admin dashboard.
 
+**Ownership rules for `team_name`:**
+- Set by the founding admin at family creation time (signup form).
+- After creation, only admins can edit it. The edit UI in `PlayersPage` always pre-fills the current value, so any co-admin editing it sees the existing alias before overwriting — no silent conflicts.
+- Players can see the alias but cannot edit it.
+- On the join page (`/join`), the alias is displayed as read-only context. Joiners cannot set or change it.
+
 The `avatar_url` is the public URL of the family profile picture stored in the `family-avatars` Supabase Storage bucket.
 
 #### 1.2 New table: `family_invites`
@@ -243,8 +249,11 @@ A new Supabase Storage bucket `family-avatars` with the following properties:
 ### Upload Flow
 
 Any family member (admin or player) can upload the family picture from:
-- **Admin:** a "תמונת המשפחה" section within `PlayersPage` (alongside family name and team name display)
-- **Player:** their `ProfilePage` (already exists at `/player/profile`) — add a "תמונת המשפחה" card
+- **Admin:** a "הגדרות משפחה" section within `PlayersPage` showing:
+  - Family name (read-only display)
+  - Team alias — editable inline text field, pre-filled with the current `team_name`. Shows `"עדיין לא נבחר כינוי"` as placeholder if not yet set. Only admins see this field as editable; players see it as read-only.
+  - Family avatar upload (`FamilyAvatarUpload` component)
+- **Player:** their `ProfilePage` (already exists at `/player/profile`) — add a "תמונת המשפחה" card showing the current avatar (editable) and the family name + alias (read-only)
 
 Both use the same `FamilyAvatarUpload` component.
 
