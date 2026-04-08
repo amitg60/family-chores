@@ -50,6 +50,7 @@ describe('NotificationBell', () => {
     expect(screen.getByText('הוקצתה לך משימה חדשה')).toBeInTheDocument()
     expect(screen.getByText('ניקוי חדר')).toBeInTheDocument()
     expect(screen.getByText('זכית בהישג חדש!')).toBeInTheDocument()
+    expect(screen.getByText(/לפני 5 דקות/)).toBeInTheDocument()
   })
 
   it('calls markRead with notification id when dismiss button clicked', () => {

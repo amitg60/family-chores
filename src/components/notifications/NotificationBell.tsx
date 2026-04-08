@@ -20,7 +20,9 @@ function formatRelativeTime(dateStr: string): string {
   const hours = Math.floor(diff / 3600000)
   const days = Math.floor(diff / 86400000)
   if (minutes < 1) return 'עכשיו'
+  if (minutes === 1) return 'לפני דקה'
   if (minutes < 60) return `לפני ${minutes} דקות`
+  if (hours === 1) return 'לפני שעה'
   if (hours < 24) return `לפני ${hours} שעות`
   if (days === 1) return 'אתמול'
   return `לפני ${days} ימים`
@@ -44,7 +46,7 @@ export default function NotificationBell({
           <Bell className="h-5 w-5" />
           {unreadCount > 0 && (
             <span className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-destructive text-destructive-foreground text-xs flex items-center justify-center">
-              {unreadCount}
+              {unreadCount > 9 ? '9+' : unreadCount}
             </span>
           )}
         </Button>
