@@ -24,11 +24,15 @@ export function useNotifications(): UseNotificationsResult {
   }, [])
 
   const fetchNotifications = useCallback(async () => {
-    if (!profile?.id) return
+    if (!profile?.id) {
+      setLoading(false)
+      return
+    }
     setLoading(true)
     const { data } = await supabase
       .from('notifications')
       .select('*')
+      .eq('user_id', profile.id)
       .eq('read', false)
       .order('created_at', { ascending: false })
       .limit(50)
