@@ -24,7 +24,7 @@ export interface UseActivityFeedResult {
   refetch: () => void
 }
 
-export function useActivityFeed(): UseActivityFeedResult {
+export function useActivityFeed(familyId: string | null): UseActivityFeedResult {
   const [items, setItems] = useState<ActivityItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -61,6 +61,17 @@ export function useActivityFeed(): UseActivityFeedResult {
   }, [])
 
   useEffect(() => { fetchFeed() }, [fetchFeed])
+
+  useEffect(() => {
+    if (!familyId) return
+    const channel = supabase
+      .channel(`activity-feed-${familyId}`)
+      .on('postgres_changes' as const, {
+        event: 'INSERT', schema: 'public', table: 'player_achievements',
+      }, () => { fetchFeed() })
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
+  }, [familyId, fetchFeed])
 
   return { items, loading, error, refetch: fetchFeed }
 }
