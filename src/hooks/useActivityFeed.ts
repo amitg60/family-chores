@@ -38,6 +38,7 @@ export function useActivityFeed(familyId: string | null): UseActivityFeedResult 
   const fetchFeed = useCallback(async () => {
     setLoading(true)
     setError(null)
+    // RLS on player_achievements restricts results to the current family
     const { data, error } = await supabase
       .from('player_achievements')
       .select('id, earned_at, achievements!achievement_id(icon, title_he), profiles!user_id(name, avatar_url)')
@@ -66,9 +67,11 @@ export function useActivityFeed(familyId: string | null): UseActivityFeedResult 
     if (!familyId) return
     const channel = supabase
       .channel(`activity-feed-${familyId}`)
+      // No familyId filter: player_achievements has no family_id column.
+      // RLS on the refetch query handles family scoping.
       .on('postgres_changes' as const, {
         event: 'INSERT', schema: 'public', table: 'player_achievements',
-      }, () => { fetchFeed() })
+      }, () => { if (mountedRef.current) fetchFeed() })
       .subscribe()
     return () => { supabase.removeChannel(channel) }
   }, [familyId, fetchFeed])
