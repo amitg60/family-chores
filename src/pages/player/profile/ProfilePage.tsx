@@ -4,7 +4,6 @@ import { useAuth } from '../../../contexts/AuthContext'
 import { useAchievements } from '../../../hooks/useAchievements'
 import { useCoinTransactions } from '../../../hooks/useCoinTransactions'
 import { useFamily } from '../../../hooks/useFamily'
-import { useAliasVote } from '../../../hooks/useAliasVote'
 import FamilyAvatarUpload from '../../../components/shared/FamilyAvatarUpload'
 import AliasProposalDialog from '../../../components/shared/AliasProposalDialog'
 import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card'
@@ -31,7 +30,6 @@ export default function ProfilePage() {
   const { achievements, earnedIds, loading: achLoading } = useAchievements(profile?.id)
   const { transactions, totalEarned, totalSpent, loading: txLoading, error: txError } = useCoinTransactions(profile?.id)
   const { family, loading: familyLoading } = useFamily()
-  const { proposal: activeProposal } = useAliasVote()
   const [aliasOpen, setAliasOpen] = useState(false)
 
   const loading = txLoading || achLoading
@@ -192,7 +190,7 @@ export default function ProfilePage() {
           open={aliasOpen}
           onOpenChange={setAliasOpen}
           currentAlias={family.team_name}
-          activeProposal={activeProposal ?? null}
+          activeProposal={null}
           onProposed={() => setAliasOpen(false)}
         />
       )}

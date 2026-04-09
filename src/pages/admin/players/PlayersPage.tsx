@@ -13,7 +13,6 @@ import { Input } from '../../../components/ui/input'
 import InviteDialog from '../../../components/admin/InviteDialog'
 import FamilyAvatarUpload from '../../../components/shared/FamilyAvatarUpload'
 import AliasProposalDialog from '../../../components/shared/AliasProposalDialog'
-import { useAliasVote } from '../../../hooks/useAliasVote'
 import type { Profile } from '../../../types/database'
 
 export default function PlayersPage() {
@@ -28,7 +27,6 @@ export default function PlayersPage() {
   const [bonusAmount, setBonusAmount]                  = useState('')
   const [bonusSubmitting, setBonusSubmitting]          = useState(false)
   const [inviteOpen, setInviteOpen]                    = useState(false)
-  const { proposal: activeProposal }                   = useAliasVote()
   const [aliasOpen, setAliasOpen]                      = useState(false)
 
   const players = members.filter(m => m.role === 'player')
@@ -204,7 +202,7 @@ export default function PlayersPage() {
           open={aliasOpen}
           onOpenChange={setAliasOpen}
           currentAlias={family.team_name}
-          activeProposal={activeProposal ?? null}
+          activeProposal={null}
           onProposed={() => setAliasOpen(false)}
         />
       )}
