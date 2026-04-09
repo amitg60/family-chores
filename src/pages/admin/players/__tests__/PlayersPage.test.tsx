@@ -20,6 +20,16 @@ vi.mock('../../../../hooks/useFamilyMembers', () => ({
   })),
 }))
 
+vi.mock('../../../../hooks/useInvites', () => ({
+  useInvites: vi.fn(() => ({
+    invites: [], loading: false, refetch: vi.fn(), cancelInvite: vi.fn(), generateInvite: vi.fn(),
+  })),
+}))
+
+vi.mock('../../../../hooks/useFamily', () => ({
+  useFamily: vi.fn(() => ({ family: null, loading: false })),
+}))
+
 vi.mock('../../../../lib/supabase', () => ({
   supabase: { rpc: vi.fn() },
 }))

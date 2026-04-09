@@ -1,23 +1,31 @@
 import { useState } from 'react'
 import { useAuth } from '../../../contexts/AuthContext'
 import { useFamilyMembers } from '../../../hooks/useFamilyMembers'
+import { useInvites } from '../../../hooks/useInvites'
+import { useFamily } from '../../../hooks/useFamily'
 import { supabase } from '../../../lib/supabase'
-import { Card, CardContent } from '../../../components/ui/card'
+import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card'
 import { Button } from '../../../components/ui/button'
 import { Badge } from '../../../components/ui/badge'
 import { Avatar, AvatarFallback, AvatarImage } from '../../../components/ui/avatar'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../../../components/ui/dialog'
 import { Input } from '../../../components/ui/input'
+import InviteDialog from '../../../components/admin/InviteDialog'
+import FamilyAvatarUpload from '../../../components/shared/FamilyAvatarUpload'
 import type { Profile } from '../../../types/database'
 
 export default function PlayersPage() {
-  const { profile: adminProfile } = useAuth()
-  const { members, loading, error, refetch } = useFamilyMembers()
-  const [actionError, setActionError] = useState<string | null>(null)
-  const [busyId, setBusyId] = useState<string | null>(null)
-  const [bonusTarget, setBonusTarget] = useState<Profile | null>(null)
-  const [bonusAmount, setBonusAmount] = useState('')
-  const [bonusSubmitting, setBonusSubmitting] = useState(false)
+  const { profile: adminProfile }                      = useAuth()
+  const { members, loading, error, refetch }           = useFamilyMembers()
+  const { invites, cancelInvite, generateInvite }      = useInvites()
+  const { family, loading: familyLoading }             = useFamily()
+
+  const [actionError, setActionError]                  = useState<string | null>(null)
+  const [busyId, setBusyId]                            = useState<string | null>(null)
+  const [bonusTarget, setBonusTarget]                  = useState<Profile | null>(null)
+  const [bonusAmount, setBonusAmount]                  = useState('')
+  const [bonusSubmitting, setBonusSubmitting]          = useState(false)
+  const [inviteOpen, setInviteOpen]                    = useState(false)
 
   const players = members.filter(m => m.role === 'player')
 
@@ -54,14 +62,24 @@ export default function PlayersPage() {
     }
   }
 
+  function formatCreatedAt(createdAt: string) {
+    const d = new Date(createdAt)
+    return d.toLocaleString('he-IL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+  }
+
   if (loading) return <div role="status" className="text-muted-foreground py-8 text-center">טוען...</div>
 
   return (
-    <div className="space-y-4" dir="rtl">
-      <h1 className="text-2xl font-bold">ניהול שחקנים</h1>
+    <div className="space-y-6" dir="rtl">
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold">ניהול שחקנים</h1>
+        <Button onClick={() => setInviteOpen(true)}>הזמן בן משפחה</Button>
+      </div>
+
       {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
       {actionError && <p role="alert" className="text-sm text-destructive">{actionError}</p>}
 
+      {/* Players list */}
       <div className="space-y-3">
         {players.map(player => (
           <Card key={player.id}>
@@ -77,30 +95,20 @@ export default function PlayersPage() {
               <div className="flex items-center gap-2">
                 <span className="text-xs text-muted-foreground">רמת אמון</span>
                 <Button
-                  size="sm"
-                  variant="outline"
+                  size="sm" variant="outline"
                   disabled={(player.trust_level ?? 1) <= 1 || busyId === player.id}
                   onClick={() => handleTrustChange(player, -1)}
                   aria-label={`הורד רמת אמון של ${player.name}`}
-                >
-                  −
-                </Button>
+                >−</Button>
                 <Badge variant="secondary">{player.trust_level}</Badge>
                 <Button
-                  size="sm"
-                  variant="outline"
+                  size="sm" variant="outline"
                   disabled={(player.trust_level ?? 1) >= 5 || busyId === player.id}
                   onClick={() => handleTrustChange(player, 1)}
                   aria-label={`העלה רמת אמון של ${player.name}`}
-                >
-                  +
-                </Button>
+                >+</Button>
               </div>
-              <Button
-                size="sm"
-                variant="secondary"
-                onClick={() => { setBonusTarget(player); setBonusAmount('') }}
-              >
+              <Button size="sm" variant="secondary" onClick={() => { setBonusTarget(player); setBonusAmount('') }}>
                 מענק בונוס
               </Button>
             </CardContent>
@@ -111,6 +119,47 @@ export default function PlayersPage() {
         )}
       </div>
 
+      {/* Pending invites */}
+      {invites.length > 0 && (
+        <div className="space-y-2">
+          <h2 className="text-lg font-semibold">הזמנות פעילות</h2>
+          {invites.map(inv => (
+            <Card key={inv.id}>
+              <CardContent className="py-3 flex items-center justify-between">
+                <div>
+                  <p className="text-sm">{inv.role === 'player' ? 'שחקן' : 'מנהל משותף'}</p>
+                  <p className="text-xs text-muted-foreground">נוצר: {formatCreatedAt(inv.created_at)}</p>
+                </div>
+                <Button variant="destructive" size="sm" onClick={() => cancelInvite(inv.id)}>
+                  בטל
+                </Button>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {/* Family settings */}
+      {!familyLoading && family && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">הגדרות משפחה</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-center gap-4">
+              <FamilyAvatarUpload family={family} />
+              <div>
+                <p className="font-medium">{family.name}</p>
+                <p className="text-sm text-muted-foreground">
+                  {family.team_name ?? 'עדיין לא נבחר כינוי'}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Bonus dialog */}
       <Dialog open={!!bonusTarget} onOpenChange={open => { if (!open) setBonusTarget(null) }}>
         <DialogContent dir="rtl">
           <DialogHeader>
@@ -118,8 +167,7 @@ export default function PlayersPage() {
           </DialogHeader>
           <div className="space-y-3">
             <Input
-              type="number"
-              min="1"
+              type="number" min="1"
               placeholder="מספר מטבעות"
               value={bonusAmount}
               onChange={e => setBonusAmount(e.target.value)}
@@ -135,6 +183,12 @@ export default function PlayersPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      <InviteDialog
+        open={inviteOpen}
+        onOpenChange={setInviteOpen}
+        generateInvite={generateInvite}
+      />
     </div>
   )
 }
