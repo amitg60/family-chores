@@ -24,7 +24,7 @@ const mockRefetch = vi.fn()
 
 vi.mock('../../../../hooks/useAchievements', () => ({
   useAchievements: vi.fn(() => ({
-    achievements: [{ id: 'ach1', icon: '⭐', name: 'First', description: '', condition_type: 'chores_completed', condition_value: 1 }] as AchievementWithStatus[],
+    achievements: [{ id: 'ach1', key: 'first_chore', icon: '⭐', title_he: 'ראשון', description_he: '', trigger_type: 'chore_completed' as const, threshold: 1, created_at: '', earned_at: '2026-01-01', player_achievement_id: 'pa1' }] as unknown as AchievementWithStatus[],
     earnedIds: new Set(['ach1']),
     totalCompletedAllTime: 1,
     loading: false,
@@ -44,8 +44,6 @@ vi.mock('../../../../hooks/useCoinTransactions', () => ({
 }))
 
 import { useCoinTransactions } from '../../../../hooks/useCoinTransactions'
-import { useAchievements } from '../../../../hooks/useAchievements'
-const mockUseAchievements = vi.mocked(useAchievements)
 import ProfilePage from '../ProfilePage'
 
 const mockUseCoinTransactions = vi.mocked(useCoinTransactions)

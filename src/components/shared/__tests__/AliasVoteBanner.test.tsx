@@ -16,11 +16,6 @@ const yesVote: FamilyAliasVote = {
   vote: true, voted_at: '',
 }
 
-const noVote: FamilyAliasVote = {
-  id: 'v2', proposal_id: 'prop1', user_id: 'user3',
-  vote: false, voted_at: '',
-}
-
 const defaultProps = {
   proposal,
   votes: [yesVote],

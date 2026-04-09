@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import QRCode from 'qrcode.react'
+import { QRCodeSVG as QRCode } from 'qrcode.react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog'
 import { Button } from '../ui/button'
 import type { UserRole } from '../../types/database'

@@ -120,7 +120,6 @@ describe('useAliasVote', () => {
 
   it('cleans up realtime channel on unmount', async () => {
     setupNoProposalMock()
-    const mockRemoveChannel = vi.fn()
     const { unmount } = renderHook(() => useAliasVote())
     await waitFor(() => expect(mockChannel).toHaveBeenCalled())
     unmount()

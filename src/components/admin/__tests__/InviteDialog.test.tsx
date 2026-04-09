@@ -4,7 +4,7 @@ import InviteDialog from '../InviteDialog'
 
 // qrcode.react renders a canvas/svg — stub it in tests
 vi.mock('qrcode.react', () => ({
-  default: ({ value }: { value: string }) => <div data-testid="qrcode">{value}</div>,
+  QRCodeSVG: ({ value }: { value: string }) => <div data-testid="qrcode">{value}</div>,
 }))
 
 const mockGenerateInvite = vi.fn()

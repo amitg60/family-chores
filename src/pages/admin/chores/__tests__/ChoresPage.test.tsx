@@ -47,7 +47,7 @@ function renderChoresPage() {
 describe('ChoresPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockUseFamilyMembers.mockReturnValue({ members: [], loading: false, error: null })
+    mockUseFamilyMembers.mockReturnValue({ members: [], loading: false, error: null, refetch: vi.fn() })
   })
 
   it('shows loading spinner while loading', () => {
