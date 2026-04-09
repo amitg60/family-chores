@@ -39,7 +39,7 @@ export default function PlayerDashboard() {
     loading: achievementsLoading,
     refetch: achievementsRefetch,
   } = useAchievements(profile?.id)
-  const { items: feedItems } = useActivityFeed()
+  const { items: feedItems } = useActivityFeed(profile?.family_id ?? null)
   const { toast } = useToast()
 
   useEffect(() => {
