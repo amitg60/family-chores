@@ -54,7 +54,7 @@ CREATE POLICY "family_invites: admins can delete their family invites"
 -- generate_invite_token: admin creates a new single-use invite
 CREATE OR REPLACE FUNCTION generate_invite_token(p_role user_role)
 RETURNS text LANGUAGE plpgsql SECURITY DEFINER
-SET search_path = public, pg_temp AS $$
+SET search_path = public, extensions, pg_temp AS $$
 DECLARE
   v_token     text;
   v_family_id uuid;
@@ -66,7 +66,7 @@ BEGIN
   IF v_family_id IS NULL THEN
     RAISE EXCEPTION 'No family found for current user';
   END IF;
-  v_token := encode(gen_random_bytes(16), 'hex');
+  v_token := encode(extensions.gen_random_bytes(16), 'hex');
   INSERT INTO family_invites (family_id, created_by, role, token, expires_at)
   VALUES (v_family_id, auth.uid(), p_role, v_token, now() + interval '5 hours');
   RETURN v_token;
