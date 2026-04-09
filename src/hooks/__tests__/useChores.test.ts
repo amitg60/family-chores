@@ -12,7 +12,7 @@ const fakeChore = {
   coin_value: 10,
   difficulty: 'easy' as const,
   assigned_to: null,
-  is_recurring: false,
+  recurrence_type: 'none' as const,
   status: 'active' as const,
   proposed_by: null,
   approved_by: null,

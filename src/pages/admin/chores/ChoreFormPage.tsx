@@ -15,7 +15,7 @@ import {
   SelectValue,
 } from '../../../components/ui/select'
 import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card'
-import type { ChoreDifficulty, ChoreStatus } from '../../../types/database'
+import type { ChoreDifficulty, ChoreStatus, RecurrenceType } from '../../../types/database'
 
 export default function ChoreFormPage() {
   const { id } = useParams<{ id: string }>()
@@ -30,7 +30,7 @@ export default function ChoreFormPage() {
   const [difficulty, setDifficulty] = useState<ChoreDifficulty>('easy')
   const [assignedTo, setAssignedTo] = useState('none')
   const [dueDate, setDueDate] = useState('')
-  const [isRecurring, setIsRecurring] = useState(false)
+  const [recurrenceType, setRecurrenceType] = useState<RecurrenceType>('none')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -53,7 +53,7 @@ export default function ChoreFormPage() {
         setDifficulty(data.difficulty as ChoreDifficulty)
         setAssignedTo(data.assigned_to ?? 'none')
         setDueDate(data.due_date ?? '')
-        setIsRecurring(data.is_recurring)
+        setRecurrenceType(data.recurrence_type as RecurrenceType)
       })
   }, [id, isEditMode])
 
@@ -69,7 +69,7 @@ export default function ChoreFormPage() {
         difficulty,
         assigned_to: assignedTo === 'none' ? null : assignedTo,
         due_date: dueDate || null,
-        is_recurring: isRecurring,
+        recurrence_type: recurrenceType,
       }
 
       if (!profile?.family_id) {
@@ -191,8 +191,8 @@ export default function ChoreFormPage() {
               <input
                 id="isRecurring"
                 type="checkbox"
-                checked={isRecurring}
-                onChange={e => setIsRecurring(e.target.checked)}
+                checked={recurrenceType !== 'none'}
+                onChange={e => setRecurrenceType(e.target.checked ? 'weekly' : 'none')}
                 className="h-4 w-4 rounded border-input"
               />
               <Label htmlFor="isRecurring">משימה שבועית חוזרת</Label>

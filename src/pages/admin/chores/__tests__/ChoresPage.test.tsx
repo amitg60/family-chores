@@ -27,7 +27,7 @@ const mockUseFamilyMembers = vi.mocked(useFamilyMembers)
 const activeChore = {
   id: 'c1', family_id: 'f1', title: 'כלי מטבח', description: null,
   coin_value: 10, difficulty: 'easy' as const, assigned_to: null,
-  is_recurring: false, status: 'active' as const,
+  recurrence_type: 'none' as const, status: 'active' as const,
   proposed_by: null, approved_by: null, due_date: null,
   last_traded_price: null, created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z',
 }

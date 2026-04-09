@@ -39,7 +39,7 @@ const mockCheckAndAward = vi.mocked(checkAndAwardAchievements)
 
 const fakeChore = {
   id: 'c1', family_id: 'f1', title: 'כלי מטבח', coin_value: 10,
-  difficulty: 'easy' as const, assigned_to: null, is_recurring: false,
+  difficulty: 'easy' as const, assigned_to: null, recurrence_type: 'none' as const,
   status: 'active' as const, description: null, proposed_by: null,
   approved_by: null, due_date: null, last_traded_price: null,
   created_at: '2026-04-05T00:00:00Z', updated_at: '2026-04-05T00:00:00Z',

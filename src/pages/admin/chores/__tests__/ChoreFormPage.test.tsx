@@ -47,7 +47,7 @@ function renderEdit(id = 'c1') {
 const existingChore = {
   id: 'c1', family_id: 'f1', title: 'כלי מטבח', description: 'לשטוף כלים',
   coin_value: 10, difficulty: 'easy', assigned_to: null,
-  is_recurring: false, status: 'active',
+  recurrence_type: 'none', status: 'active',
   proposed_by: null, approved_by: null, due_date: null,
   last_traded_price: null, created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z',
 }

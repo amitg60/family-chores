@@ -8,6 +8,7 @@ export type RewardType = 'store' | 'manual_bonus'
 export type RewardStatus = 'active' | 'pending_approval' | 'archived'
 export type RedemptionStatus = 'pending' | 'granted' | 'declined'
 export type TradeStatus = 'pending' | 'accepted' | 'declined' | 'countered' | 'expired'
+export type RecurrenceType = 'none' | 'weekly' | 'daily' | 'monthly'
 export type CoinReason = 'chore_completed' | 'reward_redeemed' | 'trade_transfer' | 'penalty' | 'manual_bonus' | 'refund'
 export type AchievementTrigger = 'chore_count' | 'coin_total' | 'trade_count' | 'trust_level' | 'weekly_top' | 'streak'
 export type NotificationType =
@@ -45,7 +46,7 @@ export interface Chore {
   coin_value: number
   difficulty: ChoreDifficulty
   assigned_to: string | null
-  is_recurring: boolean
+  recurrence_type: RecurrenceType
   status: ChoreStatus
   proposed_by: string | null
   approved_by: string | null
@@ -227,4 +228,11 @@ export interface FamilyAliasVote {
   user_id: string
   vote: boolean
   voted_at: string
+}
+
+export interface ChoreSchedule {
+  id: string
+  chore_id: string
+  day_of_week: number | null  // null = weekly/monthly, 0–6 (0=Sun) = daily
+  assigned_to: string
 }
