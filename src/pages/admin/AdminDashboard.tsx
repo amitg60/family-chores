@@ -3,6 +3,7 @@ import { useChores } from '../../hooks/useChores'
 import { usePendingRedemptions } from '../../hooks/usePendingRedemptions'
 import { usePendingCompletions } from '../../hooks/usePendingCompletions'
 import { useAdminDashboardStats } from '../../hooks/useAdminDashboardStats'
+import { useWeeklyPopulation } from '../../hooks/useWeeklyPopulation'
 import { Button } from '../../components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card'
 import { Avatar, AvatarFallback, AvatarImage } from '../../components/ui/avatar'
@@ -12,6 +13,7 @@ export default function AdminDashboard() {
   const { redemptions } = usePendingRedemptions()
   const { completions } = usePendingCompletions()
   const { leaderboard, totalCoinsThisWeek, activeTradesCount, loading: statsLoading } = useAdminDashboardStats()
+  useWeeklyPopulation()
 
   const pendingProposalsCount = chores.filter(c => c.status === 'pending_approval').length
   const pendingRedemptionsCount = redemptions.length

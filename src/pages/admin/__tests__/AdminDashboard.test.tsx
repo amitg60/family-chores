@@ -16,6 +16,9 @@ vi.mock('../../../hooks/useAdminDashboardStats', () => ({
     leaderboard: [], totalCoinsThisWeek: 0, activeTradesCount: 0, loading: false, error: null,
   })),
 }))
+vi.mock('../../../hooks/useWeeklyPopulation', () => ({
+  useWeeklyPopulation: vi.fn(),
+}))
 
 import { useChores } from '../../../hooks/useChores'
 import { usePendingRedemptions } from '../../../hooks/usePendingRedemptions'

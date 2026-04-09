@@ -5,6 +5,7 @@ import { useChoreAssignments } from '../../hooks/useChoreAssignments'
 import { useChores } from '../../hooks/useChores'
 import { useAchievements } from '../../hooks/useAchievements'
 import { useActivityFeed } from '../../hooks/useActivityFeed'
+import { useWeeklyPopulation } from '../../hooks/useWeeklyPopulation'
 import { checkAndAwardAchievements } from '../../lib/checkAchievements'
 import { useToast } from '../../hooks/use-toast'
 import { Button } from '../../components/ui/button'
@@ -41,6 +42,7 @@ export default function PlayerDashboard() {
   } = useAchievements(profile?.id)
   const { items: feedItems } = useActivityFeed(profile?.family_id ?? null)
   const { toast } = useToast()
+  useWeeklyPopulation()
 
   useEffect(() => {
     if (!profile?.family_id || loading || achievementsLoading) return

@@ -20,6 +20,9 @@ vi.mock('../../../hooks/useAchievements', () => ({
 vi.mock('../../../hooks/useActivityFeed', () => ({
   useActivityFeed: vi.fn(() => ({ items: [], loading: false, error: null, refetch: vi.fn() })),
 }))
+vi.mock('../../../hooks/useWeeklyPopulation', () => ({
+  useWeeklyPopulation: vi.fn(),
+}))
 vi.mock('../../../lib/checkAchievements', () => ({
   checkAndAwardAchievements: vi.fn().mockResolvedValue([]),
 }))
