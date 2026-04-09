@@ -33,6 +33,10 @@ CREATE POLICY "chore_schedule: admins can write"
   USING (
     chore_id IN (SELECT id FROM chores WHERE family_id = get_my_family_id())
     AND is_admin()
+  )
+  WITH CHECK (
+    chore_id IN (SELECT id FROM chores WHERE family_id = get_my_family_id())
+    AND is_admin()
   );
 
 -- ============================================================
@@ -90,3 +94,5 @@ BEGIN
   -- Monthly: label only, no auto-creation
 END;
 $$;
+
+GRANT EXECUTE ON FUNCTION populate_weekly_assignments(date) TO authenticated;
