@@ -110,7 +110,8 @@ export default function ChoreFormPage() {
       }
 
       if (recurrenceType !== 'none') {
-        await supabase.from('chore_schedule').delete().eq('chore_id', choreId)
+        const { error: deleteErr } = await supabase.from('chore_schedule').delete().eq('chore_id', choreId)
+        if (deleteErr) { setError('שגיאה בשמירת הלוח זמנים'); return }
         const scheduleRows =
           recurrenceType === 'daily'
             ? Object.entries(dailySchedule)
@@ -243,7 +244,7 @@ export default function ChoreFormPage() {
               <div className="space-y-2">
                 <Label>תזמון יומי</Label>
                 {DAY_NAMES.map((dayName, dayIndex) => (
-                  <div key={dayIndex} className="flex items-center gap-2">
+                  <div key={dayName} className="flex items-center gap-2">
                     <span className="text-sm w-16 shrink-0">{dayName}</span>
                     <Select
                       value={dailySchedule[dayIndex] ?? 'none'}
