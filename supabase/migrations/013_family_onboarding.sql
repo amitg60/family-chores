@@ -131,7 +131,8 @@ $$;
 CREATE OR REPLACE FUNCTION create_family_and_admin(
   p_family_name text,
   p_team_name   text,
-  p_admin_name  text
+  p_admin_name  text,
+  p_user_id     uuid
 ) RETURNS void LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = public, pg_temp AS $$
 DECLARE
@@ -144,7 +145,7 @@ BEGIN
   RETURNING id INTO v_family_id;
 
   INSERT INTO profiles (id, family_id, name, role)
-  VALUES (auth.uid(), v_family_id, p_admin_name, 'admin');
+  VALUES (p_user_id, v_family_id, p_admin_name, 'admin');
 END;
 $$;
 

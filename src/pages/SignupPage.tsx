@@ -31,6 +31,7 @@ export default function SignupPage() {
       p_family_name: familyName,
       p_team_name:   teamName,
       p_admin_name:  adminName,
+      p_user_id:     data.user.id,
     })
     if (rpcError) {
       setError(rpcError.message)
