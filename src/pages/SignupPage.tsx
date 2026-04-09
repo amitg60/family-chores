@@ -59,6 +59,9 @@ export default function SignupPage() {
               שלחנו קישור אימות לכתובת <span className="font-medium">{email}</span>.
               לאחר האישור תוכל להתחבר.
             </p>
+            <p className="text-xs text-muted-foreground">
+              לא קיבלת? בדוק גם את תיקיית הספאם.
+            </p>
             <Link to="/login" className="block text-sm underline text-muted-foreground pt-2">
               לדף הכניסה
             </Link>
