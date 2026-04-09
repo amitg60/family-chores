@@ -35,8 +35,8 @@ export function useActivityFeed(familyId: string | null): UseActivityFeedResult 
     return () => { mountedRef.current = false }
   }, [])
 
-  const fetchFeed = useCallback(async () => {
-    setLoading(true)
+  const fetchFeed = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
     setError(null)
     // RLS on player_achievements restricts results to the current family
     const { data, error } = await supabase
@@ -57,7 +57,7 @@ export function useActivityFeed(familyId: string | null): UseActivityFeedResult 
         earnedAt: row.earned_at,
       })))
     }
-    setLoading(false)
+    if (!silent) setLoading(false)
   // supabase is a stable singleton — no external dependencies needed
   }, [])
 
@@ -71,7 +71,10 @@ export function useActivityFeed(familyId: string | null): UseActivityFeedResult 
       // RLS on the refetch query handles family scoping.
       .on('postgres_changes' as const, {
         event: 'INSERT', schema: 'public', table: 'player_achievements',
-      }, () => { if (mountedRef.current) fetchFeed() })
+      // Note: Realtime fires for all families' inserts since player_achievements
+      // lacks a family_id column. The refetch is RLS-scoped so data is correct,
+      // but may fire for unrelated families' events on a shared database.
+      }, () => { if (mountedRef.current) fetchFeed(true) })
       .subscribe()
     return () => { supabase.removeChannel(channel) }
   }, [familyId, fetchFeed])
