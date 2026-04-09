@@ -15,7 +15,9 @@ import {
   SelectValue,
 } from '../../../components/ui/select'
 import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card'
-import type { ChoreDifficulty, ChoreStatus } from '../../../types/database'
+import type { ChoreDifficulty, ChoreStatus, RecurrenceType } from '../../../types/database'
+
+const DAY_NAMES = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת']
 
 export default function ChoreFormPage() {
   const { id } = useParams<{ id: string }>()
@@ -24,15 +26,17 @@ export default function ChoreFormPage() {
   const { profile } = useAuth()
   const { members } = useFamilyMembers()
 
-  const [title, setTitle] = useState('')
-  const [description, setDescription] = useState('')
-  const [coinValue, setCoinValue] = useState('1')
-  const [difficulty, setDifficulty] = useState<ChoreDifficulty>('easy')
-  const [assignedTo, setAssignedTo] = useState('none')
-  const [dueDate, setDueDate] = useState('')
-  const [isRecurring, setIsRecurring] = useState(false)
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [title, setTitle]                   = useState('')
+  const [description, setDescription]       = useState('')
+  const [coinValue, setCoinValue]           = useState('1')
+  const [difficulty, setDifficulty]         = useState<ChoreDifficulty>('easy')
+  const [assignedTo, setAssignedTo]         = useState('none')
+  const [dueDate, setDueDate]               = useState('')
+  const [recurrenceType, setRecurrenceType] = useState<RecurrenceType>('none')
+  const [dailySchedule, setDailySchedule]   = useState<Record<number, string>>({})
+  const [weeklyAssignees, setWeeklyAssignees] = useState<string[]>([])
+  const [saving, setSaving]                 = useState(false)
+  const [error, setError]                   = useState<string | null>(null)
 
   useEffect(() => {
     if (!isEditMode) return
@@ -42,18 +46,34 @@ export default function ChoreFormPage() {
       .eq('id', id)
       .single()
       .then(({ data, error }) => {
-        if (error) {
-          setError('שגיאה בטעינת המשימה')
-          return
-        }
-        if (!data) return
+        if (error || !data) { setError('שגיאה בטעינת המשימה'); return }
         setTitle(data.title)
         setDescription(data.description ?? '')
         setCoinValue(String(data.coin_value))
         setDifficulty(data.difficulty as ChoreDifficulty)
         setAssignedTo(data.assigned_to ?? 'none')
         setDueDate(data.due_date ?? '')
-        setIsRecurring(data.is_recurring)
+        setRecurrenceType((data.recurrence_type as RecurrenceType) ?? 'none')
+      })
+  }, [id, isEditMode])
+
+  useEffect(() => {
+    if (!isEditMode || !id) return
+    supabase
+      .from('chore_schedule')
+      .select('*')
+      .eq('chore_id', id)
+      .then(({ data }) => {
+        if (!data || data.length === 0) return
+        if (data[0].day_of_week !== null) {
+          const daily: Record<number, string> = {}
+          for (const row of data) {
+            if (row.day_of_week !== null) daily[row.day_of_week] = row.assigned_to
+          }
+          setDailySchedule(daily)
+        } else {
+          setWeeklyAssignees(data.map((r: { assigned_to: string }) => r.assigned_to))
+        }
       })
   }, [id, isEditMode])
 
@@ -62,41 +82,56 @@ export default function ChoreFormPage() {
     setError(null)
     setSaving(true)
     try {
+      if (!profile?.family_id) { setError('שגיאה בשמירת המשימה'); return }
+
       const payload = {
         title,
         description: description || null,
         coin_value: Number(coinValue),
         difficulty,
-        assigned_to: assignedTo === 'none' ? null : assignedTo,
+        assigned_to: recurrenceType === 'none' && assignedTo !== 'none' ? assignedTo : null,
         due_date: dueDate || null,
-        is_recurring: isRecurring,
+        recurrence_type: recurrenceType,
       }
 
-      if (!profile?.family_id) {
-        setError('שגיאה בשמירת המשימה')
-        setSaving(false)
-        return
-      }
-
-      let err: { message: string } | null = null
-
+      let choreId: string
       if (isEditMode) {
-        const result = await supabase.from('chores').update(payload).eq('id', id!)
-        err = result.error
+        const { error: err } = await supabase.from('chores').update(payload).eq('id', id!)
+        if (err) { setError('שגיאה בשמירת המשימה'); return }
+        choreId = id!
       } else {
-        const result = await supabase.from('chores').insert({
-          ...payload,
-          family_id: profile.family_id,
-          status: 'active' as ChoreStatus,
-        })
-        err = result.error
+        const { data, error: err } = await supabase
+          .from('chores')
+          .insert({ ...payload, family_id: profile.family_id, status: 'active' as ChoreStatus })
+          .select('id')
+          .single()
+        if (err || !data) { setError('שגיאה בשמירת המשימה'); return }
+        choreId = data.id
       }
 
-      if (err) {
-        setError('שגיאה בשמירת המשימה')
-      } else {
-        navigate('/admin/chores')
+      if (recurrenceType !== 'none') {
+        await supabase.from('chore_schedule').delete().eq('chore_id', choreId)
+        const scheduleRows =
+          recurrenceType === 'daily'
+            ? Object.entries(dailySchedule)
+                .filter(([, userId]) => userId && userId !== 'none')
+                .map(([day, userId]) => ({
+                  chore_id: choreId,
+                  day_of_week: Number(day),
+                  assigned_to: userId,
+                }))
+            : weeklyAssignees.map(userId => ({
+                chore_id: choreId,
+                day_of_week: null,
+                assigned_to: userId,
+              }))
+        if (scheduleRows.length > 0) {
+          const { error: schedErr } = await supabase.from('chore_schedule').insert(scheduleRows)
+          if (schedErr) { setError('שגיאה בשמירת הלוח זמנים'); return }
+        }
       }
+
+      navigate('/admin/chores')
     } finally {
       setSaving(false)
     }
@@ -162,20 +197,22 @@ export default function ChoreFormPage() {
               </Select>
             </div>
 
-            <div className="space-y-1">
-              <Label>שייך ל</Label>
-              <Select value={assignedTo} onValueChange={setAssignedTo}>
-                <SelectTrigger aria-label="שייך ל">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">בריכה פתוחה (כולם)</SelectItem>
-                  {members.map(m => (
-                    <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {recurrenceType === 'none' && (
+              <div className="space-y-1">
+                <Label>שייך ל</Label>
+                <Select value={assignedTo} onValueChange={setAssignedTo}>
+                  <SelectTrigger aria-label="שייך ל">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">בריכה פתוחה (כולם)</SelectItem>
+                    {members.map(m => (
+                      <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
 
             <div className="space-y-1">
               <Label htmlFor="dueDate">תאריך יעד (אופציונלי)</Label>
@@ -187,20 +224,73 @@ export default function ChoreFormPage() {
               />
             </div>
 
-            <div className="flex items-center gap-2">
-              <input
-                id="isRecurring"
-                type="checkbox"
-                checked={isRecurring}
-                onChange={e => setIsRecurring(e.target.checked)}
-                className="h-4 w-4 rounded border-input"
-              />
-              <Label htmlFor="isRecurring">משימה שבועית חוזרת</Label>
+            <div className="space-y-1">
+              <Label>חזרה</Label>
+              <Select value={recurrenceType} onValueChange={v => setRecurrenceType(v as RecurrenceType)}>
+                <SelectTrigger aria-label="סוג חזרה">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">ללא</SelectItem>
+                  <SelectItem value="daily">יומי</SelectItem>
+                  <SelectItem value="weekly">שבועי</SelectItem>
+                  <SelectItem value="monthly">חודשי</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
 
-            {error && (
-              <p role="alert" className="text-sm text-destructive">{error}</p>
+            {recurrenceType === 'daily' && (
+              <div className="space-y-2">
+                <Label>תזמון יומי</Label>
+                {DAY_NAMES.map((dayName, dayIndex) => (
+                  <div key={dayIndex} className="flex items-center gap-2">
+                    <span className="text-sm w-16 shrink-0">{dayName}</span>
+                    <Select
+                      value={dailySchedule[dayIndex] ?? 'none'}
+                      onValueChange={v =>
+                        setDailySchedule(prev => ({ ...prev, [dayIndex]: v }))
+                      }
+                    >
+                      <SelectTrigger aria-label={`שיוך ל${dayName}`}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">ללא</SelectItem>
+                        {members.map(m => (
+                          <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ))}
+              </div>
             )}
+
+            {(recurrenceType === 'weekly' || recurrenceType === 'monthly') && (
+              <div className="space-y-2">
+                <Label>משוייך ל</Label>
+                {members.map(m => (
+                  <div key={m.id} className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id={`assignee-${m.id}`}
+                      checked={weeklyAssignees.includes(m.id)}
+                      onChange={e => {
+                        if (e.target.checked) {
+                          setWeeklyAssignees(prev => [...prev, m.id])
+                        } else {
+                          setWeeklyAssignees(prev => prev.filter(uid => uid !== m.id))
+                        }
+                      }}
+                      className="h-4 w-4 rounded border-input"
+                    />
+                    <Label htmlFor={`assignee-${m.id}`}>{m.name}</Label>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
 
             <Button type="submit" className="w-full" disabled={saving}>
               {saving ? 'שומר...' : 'שמור'}

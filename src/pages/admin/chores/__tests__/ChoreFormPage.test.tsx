@@ -65,7 +65,9 @@ describe('ChoreFormPage — create mode', () => {
 
   it('creates a chore on submit and navigates to /admin/chores', async () => {
     mockFrom.mockReturnValue({
-      insert: vi.fn().mockResolvedValue({ error: null }),
+      insert: vi.fn().mockReturnThis(),
+      select: vi.fn().mockReturnThis(),
+      single: vi.fn().mockResolvedValue({ data: { id: 'new-id' }, error: null }),
     })
     renderCreate()
 
@@ -79,7 +81,9 @@ describe('ChoreFormPage — create mode', () => {
 
   it('shows Hebrew error message when insert fails', async () => {
     mockFrom.mockReturnValue({
-      insert: vi.fn().mockResolvedValue({ error: { message: 'DB error' } }),
+      insert: vi.fn().mockReturnThis(),
+      select: vi.fn().mockReturnThis(),
+      single: vi.fn().mockResolvedValue({ data: null, error: { message: 'DB error' } }),
     })
     renderCreate()
 
@@ -96,7 +100,9 @@ describe('ChoreFormPage — create mode', () => {
   it('disables submit button while saving', async () => {
     let resolve: (v: unknown) => void
     mockFrom.mockReturnValue({
-      insert: vi.fn().mockReturnValue(new Promise(r => { resolve = r })),
+      insert: vi.fn().mockReturnThis(),
+      select: vi.fn().mockReturnThis(),
+      single: vi.fn().mockReturnValue(new Promise(r => { resolve = r })),
     })
     renderCreate()
 
@@ -106,7 +112,29 @@ describe('ChoreFormPage — create mode', () => {
     await userEvent.click(screen.getByRole('button', { name: 'שמור' }))
 
     expect(screen.getByRole('button', { name: /שומר/ })).toBeDisabled()
-    resolve!({ error: null })
+    resolve!({ data: { id: 'new-id' }, error: null })
+  })
+
+  it('shows daily schedule grid when daily recurrence is selected', async () => {
+    renderCreate()
+    const recurrenceSelect = screen.getByRole('combobox', { name: 'סוג חזרה' })
+    await userEvent.click(recurrenceSelect)
+    await waitFor(() => screen.getByRole('option', { name: 'יומי' }))
+    await userEvent.click(screen.getByRole('option', { name: 'יומי' }))
+    await waitFor(() => expect(screen.getByText('ראשון')).toBeInTheDocument())
+    expect(screen.getByText('שבת')).toBeInTheDocument()
+  })
+
+  it('shows member checkboxes when weekly recurrence is selected', async () => {
+    renderCreate()
+    const recurrenceSelect = screen.getByRole('combobox', { name: 'סוג חזרה' })
+    await userEvent.click(recurrenceSelect)
+    await waitFor(() => screen.getByRole('option', { name: 'שבועי' }))
+    await userEvent.click(screen.getByRole('option', { name: 'שבועי' }))
+    await waitFor(() => {
+      const checkboxes = screen.getAllByRole('checkbox')
+      expect(checkboxes.length).toBeGreaterThan(0)
+    })
   })
 })
 
@@ -114,11 +142,16 @@ describe('ChoreFormPage — edit mode', () => {
   beforeEach(() => vi.clearAllMocks())
 
   it('pre-fills form with existing chore data', async () => {
-    mockFrom.mockReturnValue({
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      single: vi.fn().mockResolvedValue({ data: existingChore, error: null }),
-    })
+    mockFrom
+      .mockReturnValueOnce({
+        select: vi.fn().mockReturnThis(),
+        eq: vi.fn().mockReturnThis(),
+        single: vi.fn().mockResolvedValue({ data: existingChore, error: null }),
+      })
+      .mockReturnValueOnce({
+        select: vi.fn().mockReturnThis(),
+        eq: vi.fn().mockResolvedValue({ data: [], error: null }),
+      })
     renderEdit('c1')
 
     await waitFor(() =>
@@ -128,11 +161,16 @@ describe('ChoreFormPage — edit mode', () => {
   })
 
   it('shows error when edit-mode fetch fails', async () => {
-    mockFrom.mockReturnValue({
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      single: vi.fn().mockResolvedValue({ data: null, error: { message: 'not found' } }),
-    })
+    mockFrom
+      .mockReturnValueOnce({
+        select: vi.fn().mockReturnThis(),
+        eq: vi.fn().mockReturnThis(),
+        single: vi.fn().mockResolvedValue({ data: null, error: { message: 'not found' } }),
+      })
+      .mockReturnValueOnce({
+        select: vi.fn().mockReturnThis(),
+        eq: vi.fn().mockResolvedValue({ data: [], error: null }),
+      })
     renderEdit('c1')
 
     await waitFor(() =>
@@ -146,6 +184,10 @@ describe('ChoreFormPage — edit mode', () => {
         select: vi.fn().mockReturnThis(),
         eq: vi.fn().mockReturnThis(),
         single: vi.fn().mockResolvedValue({ data: existingChore, error: null }),
+      })
+      .mockReturnValueOnce({
+        select: vi.fn().mockReturnThis(),
+        eq: vi.fn().mockResolvedValue({ data: [], error: null }),
       })
       .mockReturnValueOnce({
         update: vi.fn().mockReturnThis(),
