@@ -3,6 +3,8 @@ import { Link } from 'react-router-dom'
 import { useAuth } from '../../../contexts/AuthContext'
 import { useAchievements } from '../../../hooks/useAchievements'
 import { useCoinTransactions } from '../../../hooks/useCoinTransactions'
+import { useFamily } from '../../../hooks/useFamily'
+import FamilyAvatarUpload from '../../../components/shared/FamilyAvatarUpload'
 import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card'
 import { Avatar, AvatarFallback, AvatarImage } from '../../../components/ui/avatar'
 import { Button } from '../../../components/ui/button'
@@ -26,6 +28,7 @@ export default function ProfilePage() {
   const [activeTab, setActiveTab] = useState<Tab>('coins')
   const { achievements, earnedIds, loading: achLoading } = useAchievements(profile?.id)
   const { transactions, totalEarned, totalSpent, loading: txLoading, error: txError } = useCoinTransactions(profile?.id)
+  const { family, loading: familyLoading } = useFamily()
 
   const loading = txLoading || achLoading
 
@@ -62,6 +65,24 @@ export default function ProfilePage() {
       </div>
 
       {/* Tab bar */}
+      {/* Family card */}
+      {!familyLoading && family && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">המשפחה שלי</CardTitle>
+          </CardHeader>
+          <CardContent className="flex items-center gap-4">
+            <FamilyAvatarUpload family={family} />
+            <div>
+              <p className="font-medium text-sm">{family.name}</p>
+              <p className="text-xs text-muted-foreground">
+                {family.team_name ?? 'עדיין לא נבחר כינוי'}
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <div role="tablist" className="flex rounded-lg border overflow-hidden">
         {tabs.map(tab => (
           <button
