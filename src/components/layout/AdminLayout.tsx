@@ -1,10 +1,12 @@
 import { Outlet, NavLink } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
+import { useFamily } from '../../hooks/useFamily'
 import { Button } from '../ui/button'
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar'
 
 export default function AdminLayout() {
   const { profile, signOut } = useAuth()
+  const { family } = useFamily()
 
   return (
     <div className="min-h-screen bg-background" dir="rtl">
@@ -16,6 +18,20 @@ export default function AdminLayout() {
           </Avatar>
           <span className="font-semibold">{profile?.name}</span>
           <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded">מנהל</span>
+          {family && (
+            <div className="flex items-center gap-2 border-r pr-3 mr-1">
+              <Avatar className="h-7 w-7">
+                <AvatarImage src={family.avatar_url ?? undefined} />
+                <AvatarFallback>{family.name[0]}</AvatarFallback>
+              </Avatar>
+              <div className="flex flex-col leading-tight">
+                <span className="text-xs font-medium">{family.name}</span>
+                {family.team_name && (
+                  <span className="text-xs text-muted-foreground">{family.team_name}</span>
+                )}
+              </div>
+            </div>
+          )}
         </div>
         <nav className="hidden md:flex items-center gap-2">
           <NavLink

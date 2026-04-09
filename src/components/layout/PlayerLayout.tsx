@@ -8,12 +8,14 @@ import { supabase } from '../../lib/supabase'
 import { useToast } from '../../hooks/use-toast'
 import type { PlayerAchievement } from '../../types/database'
 import { useNotifications } from '../../hooks/useNotifications'
+import { useFamily } from '../../hooks/useFamily'
 import NotificationBell from '../notifications/NotificationBell'
 
 export default function PlayerLayout() {
   const { profile, signOut } = useAuth()
   const { toast } = useToast()
   const { notifications, unreadCount, markRead, markAllRead } = useNotifications()
+  const { family } = useFamily()
 
   useEffect(() => {
     if (!profile?.id) return
@@ -71,6 +73,20 @@ export default function PlayerLayout() {
             </span>
           </div>
         </Link>
+        {family && (
+          <div className="hidden sm:flex items-center gap-2 border-r pr-3 mr-1">
+            <Avatar className="h-7 w-7">
+              <AvatarImage src={family.avatar_url ?? undefined} />
+              <AvatarFallback>{family.name[0]}</AvatarFallback>
+            </Avatar>
+            <div className="flex flex-col leading-tight">
+              <span className="text-xs font-medium">{family.name}</span>
+              {family.team_name && (
+                <span className="text-xs text-muted-foreground">{family.team_name}</span>
+              )}
+            </div>
+          </div>
+        )}
         <nav className="hidden md:flex items-center gap-2">
           <NavLink
             to="/player"
