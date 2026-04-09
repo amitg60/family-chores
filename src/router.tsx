@@ -2,6 +2,8 @@ import { createBrowserRouter, Navigate } from 'react-router-dom'
 import { useAuth } from './contexts/AuthContext'
 import ProtectedRoute from './components/layout/ProtectedRoute'
 import LoginPage from './pages/LoginPage'
+import SignupPage from './pages/SignupPage'
+import JoinPage from './pages/JoinPage'
 import AdminDashboard from './pages/admin/AdminDashboard'
 import ChoresPage from './pages/admin/chores/ChoresPage'
 import ChoreFormPage from './pages/admin/chores/ChoreFormPage'
@@ -34,6 +36,14 @@ export const router = createBrowserRouter([
   {
     path: '/login',
     element: <LoginPage />,
+  },
+  {
+    path: '/signup',
+    element: <SignupPage />,
+  },
+  {
+    path: '/join',
+    element: <JoinPage />,
   },
   {
     path: '/admin',

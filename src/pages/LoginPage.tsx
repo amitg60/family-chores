@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
@@ -70,6 +70,10 @@ export default function LoginPage() {
             <Button type="submit" className="w-full" disabled={loading}>
               {loading ? 'מתחבר...' : 'כניסה'}
             </Button>
+            <p className="text-center text-sm text-muted-foreground">
+              משפחה חדשה?{' '}
+              <Link to="/signup" className="underline">צור חשבון</Link>
+            </p>
           </form>
         </CardContent>
       </Card>
