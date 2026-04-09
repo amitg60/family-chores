@@ -14,6 +14,7 @@ export default function SignupPage() {
   const [password, setPassword]     = useState('')
   const [loading, setLoading]       = useState(false)
   const [error, setError]           = useState<string | null>(null)
+  const [emailSent, setEmailSent]   = useState(false)
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -39,7 +40,32 @@ export default function SignupPage() {
       return
     }
 
-    navigate('/admin')
+    if (data.session) {
+      navigate('/admin')
+    } else {
+      setEmailSent(true)
+    }
+    setLoading(false)
+  }
+
+  if (emailSent) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background p-4" dir="rtl">
+        <Card className="w-full max-w-md">
+          <CardContent className="py-8 text-center space-y-3">
+            <p className="text-2xl">📧</p>
+            <p className="font-semibold text-lg">בדוק את תיבת הדואר שלך</p>
+            <p className="text-sm text-muted-foreground">
+              שלחנו קישור אימות לכתובת <span className="font-medium">{email}</span>.
+              לאחר האישור תוכל להתחבר.
+            </p>
+            <Link to="/login" className="block text-sm underline text-muted-foreground pt-2">
+              לדף הכניסה
+            </Link>
+          </CardContent>
+        </Card>
+      </div>
+    )
   }
 
   return (
