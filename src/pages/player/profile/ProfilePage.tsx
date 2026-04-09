@@ -4,7 +4,9 @@ import { useAuth } from '../../../contexts/AuthContext'
 import { useAchievements } from '../../../hooks/useAchievements'
 import { useCoinTransactions } from '../../../hooks/useCoinTransactions'
 import { useFamily } from '../../../hooks/useFamily'
+import { useAliasVote } from '../../../hooks/useAliasVote'
 import FamilyAvatarUpload from '../../../components/shared/FamilyAvatarUpload'
+import AliasProposalDialog from '../../../components/shared/AliasProposalDialog'
 import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card'
 import { Avatar, AvatarFallback, AvatarImage } from '../../../components/ui/avatar'
 import { Button } from '../../../components/ui/button'
@@ -29,6 +31,8 @@ export default function ProfilePage() {
   const { achievements, earnedIds, loading: achLoading } = useAchievements(profile?.id)
   const { transactions, totalEarned, totalSpent, loading: txLoading, error: txError } = useCoinTransactions(profile?.id)
   const { family, loading: familyLoading } = useFamily()
+  const { proposal: activeProposal } = useAliasVote()
+  const [aliasOpen, setAliasOpen] = useState(false)
 
   const loading = txLoading || achLoading
 
@@ -75,9 +79,14 @@ export default function ProfilePage() {
             <FamilyAvatarUpload family={family} />
             <div>
               <p className="font-medium text-sm">{family.name}</p>
-              <p className="text-xs text-muted-foreground">
-                {family.team_name ?? 'עדיין לא נבחר כינוי'}
-              </p>
+              <div className="flex items-center gap-1">
+                <p className="text-xs text-muted-foreground">
+                  {family.team_name ?? 'עדיין לא נבחר כינוי'}
+                </p>
+                <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => setAliasOpen(true)}>
+                  שנה
+                </Button>
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -177,6 +186,16 @@ export default function ProfilePage() {
         </Card>
       )}
       </div>
+
+      {family && (
+        <AliasProposalDialog
+          open={aliasOpen}
+          onOpenChange={setAliasOpen}
+          currentAlias={family.team_name}
+          activeProposal={activeProposal ?? null}
+          onProposed={() => setAliasOpen(false)}
+        />
+      )}
     </div>
   )
 }

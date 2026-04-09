@@ -9,13 +9,18 @@ import { useToast } from '../../hooks/use-toast'
 import type { PlayerAchievement } from '../../types/database'
 import { useNotifications } from '../../hooks/useNotifications'
 import { useFamily } from '../../hooks/useFamily'
+import { useAliasVote } from '../../hooks/useAliasVote'
+import { useFamilyMembers } from '../../hooks/useFamilyMembers'
 import NotificationBell from '../notifications/NotificationBell'
+import AliasVoteBanner from '../shared/AliasVoteBanner'
 
 export default function PlayerLayout() {
   const { profile, signOut } = useAuth()
   const { toast } = useToast()
   const { notifications, unreadCount, markRead, markAllRead } = useNotifications()
   const { family } = useFamily()
+  const { proposal, votes, castVote } = useAliasVote()
+  const { members } = useFamilyMembers()
 
   useEffect(() => {
     if (!profile?.id) return
@@ -159,6 +164,15 @@ export default function PlayerLayout() {
         </div>
       </header>
       <main className="p-4 max-w-4xl mx-auto">
+        {proposal && profile && (
+          <AliasVoteBanner
+            proposal={proposal}
+            votes={votes}
+            totalMembers={members.length}
+            currentUserId={profile.id}
+            castVote={castVote}
+          />
+        )}
         <Outlet />
       </main>
     </div>

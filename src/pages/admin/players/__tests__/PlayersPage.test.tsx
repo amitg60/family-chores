@@ -30,6 +30,10 @@ vi.mock('../../../../hooks/useFamily', () => ({
   useFamily: vi.fn(() => ({ family: null, loading: false })),
 }))
 
+vi.mock('../../../../hooks/useAliasVote', () => ({
+  useAliasVote: vi.fn(() => ({ proposal: null, votes: [], castVote: vi.fn(), resolveIfExpired: vi.fn(), loading: false })),
+}))
+
 vi.mock('../../../../lib/supabase', () => ({
   supabase: { rpc: vi.fn() },
 }))

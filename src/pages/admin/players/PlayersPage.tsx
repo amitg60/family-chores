@@ -12,6 +12,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../../../compo
 import { Input } from '../../../components/ui/input'
 import InviteDialog from '../../../components/admin/InviteDialog'
 import FamilyAvatarUpload from '../../../components/shared/FamilyAvatarUpload'
+import AliasProposalDialog from '../../../components/shared/AliasProposalDialog'
+import { useAliasVote } from '../../../hooks/useAliasVote'
 import type { Profile } from '../../../types/database'
 
 export default function PlayersPage() {
@@ -26,6 +28,8 @@ export default function PlayersPage() {
   const [bonusAmount, setBonusAmount]                  = useState('')
   const [bonusSubmitting, setBonusSubmitting]          = useState(false)
   const [inviteOpen, setInviteOpen]                    = useState(false)
+  const { proposal: activeProposal }                   = useAliasVote()
+  const [aliasOpen, setAliasOpen]                      = useState(false)
 
   const players = members.filter(m => m.role === 'player')
 
@@ -150,9 +154,14 @@ export default function PlayersPage() {
               <FamilyAvatarUpload family={family} />
               <div>
                 <p className="font-medium">{family.name}</p>
-                <p className="text-sm text-muted-foreground">
-                  {family.team_name ?? 'עדיין לא נבחר כינוי'}
-                </p>
+                <div className="flex items-center gap-2">
+                  <p className="text-sm text-muted-foreground">
+                    {family.team_name ?? 'עדיין לא נבחר כינוי'}
+                  </p>
+                  <Button variant="ghost" size="sm" onClick={() => setAliasOpen(true)}>
+                    שנה כינוי
+                  </Button>
+                </div>
               </div>
             </div>
           </CardContent>
@@ -189,6 +198,16 @@ export default function PlayersPage() {
         onOpenChange={setInviteOpen}
         generateInvite={generateInvite}
       />
+
+      {family && (
+        <AliasProposalDialog
+          open={aliasOpen}
+          onOpenChange={setAliasOpen}
+          currentAlias={family.team_name}
+          activeProposal={activeProposal ?? null}
+          onProposed={() => setAliasOpen(false)}
+        />
+      )}
     </div>
   )
 }

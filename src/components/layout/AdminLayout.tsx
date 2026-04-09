@@ -1,12 +1,17 @@
 import { Outlet, NavLink } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
 import { useFamily } from '../../hooks/useFamily'
+import { useAliasVote } from '../../hooks/useAliasVote'
+import { useFamilyMembers } from '../../hooks/useFamilyMembers'
 import { Button } from '../ui/button'
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar'
+import AliasVoteBanner from '../shared/AliasVoteBanner'
 
 export default function AdminLayout() {
   const { profile, signOut } = useAuth()
   const { family } = useFamily()
+  const { proposal, votes, castVote } = useAliasVote()
+  const { members } = useFamilyMembers()
 
   return (
     <div className="min-h-screen bg-background" dir="rtl">
@@ -105,6 +110,15 @@ export default function AdminLayout() {
         </Button>
       </header>
       <main className="p-4 max-w-7xl mx-auto">
+        {proposal && profile && (
+          <AliasVoteBanner
+            proposal={proposal}
+            votes={votes}
+            totalMembers={members.length}
+            currentUserId={profile.id}
+            castVote={castVote}
+          />
+        )}
         <Outlet />
       </main>
     </div>
