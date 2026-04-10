@@ -44,7 +44,12 @@ export default function JoinPage() {
 
     const { data, error: signUpError } = await supabase.auth.signUp({ email, password })
     if (signUpError || !data.user) {
-      setError(signUpError?.message ?? 'שגיאה ביצירת החשבון')
+      const msg = signUpError?.message ?? ''
+      if (msg.toLowerCase().includes('sending confirmation mail') || msg.toLowerCase().includes('email')) {
+        setError('שגיאה בשליחת מייל אימות. בקש מהמנהל לכבות אימות מייל בהגדרות Supabase, או נסה שנית מאוחר יותר.')
+      } else {
+        setError(msg || 'שגיאה ביצירת החשבון')
+      }
       setLoading(false)
       return
     }
