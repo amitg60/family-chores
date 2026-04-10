@@ -19,7 +19,14 @@ export default function InviteDialog({ open, onOpenChange, generateInvite }: Inv
   const [error, setError]               = useState<string | null>(null)
   const [copied, setCopied]             = useState(false)
 
-  const canShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function'
+  const shareData = inviteUrl
+    ? { title: 'הזמנה למשפחה', text: 'לחץ על הקישור כדי להצטרף למשפחה שלנו', url: inviteUrl }
+    : null
+  const canShare =
+    !!shareData &&
+    typeof navigator !== 'undefined' &&
+    typeof navigator.share === 'function' &&
+    (navigator.canShare == null || navigator.canShare(shareData))
 
   function reset() {
     setStep('role')
@@ -51,12 +58,9 @@ export default function InviteDialog({ open, onOpenChange, generateInvite }: Inv
   }
 
   async function handleShare() {
+    if (!shareData) return
     try {
-      await navigator.share({
-        title: 'הזמנה למשפחה',
-        text: 'לחץ על הקישור כדי להצטרף למשפחה שלנו',
-        url: inviteUrl,
-      })
+      await navigator.share(shareData)
     } catch (err) {
       if ((err as Error).name !== 'AbortError') {
         console.error('Share failed:', err)

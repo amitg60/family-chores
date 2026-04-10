@@ -24,8 +24,9 @@ describe('InviteDialog', () => {
       value: { origin: 'http://localhost:5173' },
       writable: true,
     })
-    // Remove navigator.share by default (desktop fallback)
+    // Remove navigator.share/canShare by default (desktop fallback)
     Object.defineProperty(navigator, 'share', { value: undefined, writable: true, configurable: true })
+    Object.defineProperty(navigator, 'canShare', { value: undefined, writable: true, configurable: true })
   })
 
   it('renders role selection step with two role cards', () => {
@@ -131,6 +132,19 @@ describe('InviteDialog', () => {
           url: 'http://localhost:5173/join?token=tok123',
         })
       })
+    })
+
+    it('hides share button when navigator.canShare rejects the payload', async () => {
+      Object.defineProperty(navigator, 'share', { value: mockShare, writable: true, configurable: true })
+      Object.defineProperty(navigator, 'canShare', { value: () => false, writable: true, configurable: true })
+      mockGenerateInvite.mockResolvedValue('tok123')
+      render(<InviteDialog {...defaultProps} />)
+      fireEvent.click(screen.getByText('צור קישור'))
+
+      await waitFor(() => screen.getByTestId('qrcode'))
+
+      expect(screen.queryByRole('button', { name: 'שתף קישור' })).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'העתק קישור' })).toBeInTheDocument()
     })
 
     it('silently ignores AbortError when user cancels the share sheet', async () => {
