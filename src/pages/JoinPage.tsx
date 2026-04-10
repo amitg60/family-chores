@@ -125,11 +125,11 @@ export default function JoinPage() {
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-3">
             <Input
-              placeholder="שם מלא"
+              placeholder="שם"
               value={name}
               onChange={e => setName(e.target.value)}
               required
-              aria-label="שם מלא"
+              aria-label="שם"
             />
             <Input
               type="email"
