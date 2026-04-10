@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { Outlet, NavLink, Link } from 'react-router-dom'
+import { Home, List, ShoppingBag, CalendarDays, MessageSquare, Trophy, User } from 'lucide-react'
 import type { RealtimePostgresInsertPayload } from '@supabase/supabase-js'
 import { useAuth } from '../../contexts/AuthContext'
 import { Button } from '../ui/button'
@@ -13,6 +14,16 @@ import { useAliasVote } from '../../hooks/useAliasVote'
 import { useFamilyMembers } from '../../hooks/useFamilyMembers'
 import NotificationBell from '../notifications/NotificationBell'
 import AliasVoteBanner from '../shared/AliasVoteBanner'
+
+const playerNavItems = [
+  { to: '/player', label: 'דשבורד', icon: Home, end: true },
+  { to: '/player/pool', label: 'בריכה', icon: List },
+  { to: '/player/store', label: 'החנות', icon: ShoppingBag },
+  { to: '/player/calendar', label: 'לוח שבועי', icon: CalendarDays },
+  { to: '/player/feedback', label: 'משוב', icon: MessageSquare },
+  { to: '/player/achievements', label: 'הישגים', icon: Trophy },
+  { to: '/player/profile', label: 'פרופיל', icon: User },
+]
 
 export default function PlayerLayout() {
   const { profile, signOut } = useAuth()
@@ -93,63 +104,18 @@ export default function PlayerLayout() {
           </div>
         )}
         <nav className="hidden md:flex items-center gap-2">
-          <NavLink
-            to="/player"
-            end
-            className={({ isActive }) =>
-              `px-3 py-1.5 rounded text-sm font-medium transition-colors ${isActive ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`
-            }
-          >
-            הדשבורד שלי
-          </NavLink>
-          <NavLink
-            to="/player/pool"
-            className={({ isActive }) =>
-              `px-3 py-1.5 rounded text-sm font-medium transition-colors ${isActive ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`
-            }
-          >
-            בריכה
-          </NavLink>
-          <NavLink
-            to="/player/store"
-            className={({ isActive }) =>
-              `px-3 py-1.5 rounded text-sm font-medium transition-colors ${isActive ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`
-            }
-          >
-            החנות
-          </NavLink>
-          <NavLink
-            to="/player/calendar"
-            className={({ isActive }) =>
-              `px-3 py-1.5 rounded text-sm font-medium transition-colors ${isActive ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`
-            }
-          >
-            לוח שבועי
-          </NavLink>
-          <NavLink
-            to="/player/feedback"
-            className={({ isActive }) =>
-              `px-3 py-1.5 rounded text-sm font-medium transition-colors ${isActive ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`
-            }
-          >
-            משוב
-          </NavLink>
-          <NavLink
-            to="/player/achievements"
-            className={({ isActive }) =>
-              `px-3 py-1.5 rounded text-sm font-medium transition-colors ${isActive ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`
-            }
-          >
-            הישגים
-          </NavLink>
-          <NavLink
-            to="/player/profile"
-            className={({ isActive }) =>
-              `px-3 py-1.5 rounded text-sm font-medium transition-colors ${isActive ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`
-            }
-          >
-            פרופיל
-          </NavLink>
+          {playerNavItems.map(({ to, label, end }) => (
+            <NavLink
+              key={to}
+              to={to}
+              end={end}
+              className={({ isActive }) =>
+                `px-3 py-1.5 rounded text-sm font-medium transition-colors ${isActive ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`
+              }
+            >
+              {label}
+            </NavLink>
+          ))}
         </nav>
         <div className="flex items-center gap-2">
           <NotificationBell
@@ -163,7 +129,7 @@ export default function PlayerLayout() {
           </Button>
         </div>
       </header>
-      <main className="p-4 max-w-4xl mx-auto">
+      <main className="p-4 max-w-4xl mx-auto pb-20 md:pb-4">
         {proposal && profile && (
           <AliasVoteBanner
             proposal={proposal}
@@ -175,6 +141,29 @@ export default function PlayerLayout() {
         )}
         <Outlet />
       </main>
+
+      {/* Mobile bottom navigation */}
+      <nav className="md:hidden fixed bottom-0 inset-x-0 bg-card border-t z-50 flex overflow-x-auto" dir="rtl">
+        {playerNavItems.map(({ to, label, icon: Icon, end }) => (
+          <NavLink
+            key={to}
+            to={to}
+            end={end}
+            className={({ isActive }) =>
+              `flex flex-col items-center justify-center gap-0.5 px-3 py-2 min-w-[4rem] flex-1 text-xs font-medium transition-colors shrink-0 ${
+                isActive ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
+              }`
+            }
+          >
+            {({ isActive }) => (
+              <>
+                <Icon className={`h-5 w-5 ${isActive ? 'stroke-[2.5]' : ''}`} />
+                <span>{label}</span>
+              </>
+            )}
+          </NavLink>
+        ))}
+      </nav>
     </div>
   )
 }

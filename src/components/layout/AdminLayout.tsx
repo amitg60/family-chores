@@ -6,6 +6,27 @@ import { useFamilyMembers } from '../../hooks/useFamilyMembers'
 import { Button } from '../ui/button'
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar'
 import AliasVoteBanner from '../shared/AliasVoteBanner'
+import {
+  LayoutDashboard,
+  CheckSquare,
+  ClipboardCheck,
+  Gift,
+  ShoppingBag,
+  CalendarDays,
+  MessageSquare,
+  Users,
+} from 'lucide-react'
+
+const adminNavItems = [
+  { to: '/admin', label: 'דשבורד', icon: LayoutDashboard, end: true },
+  { to: '/admin/chores', label: 'משימות', icon: CheckSquare },
+  { to: '/admin/completions', label: 'הגשות', icon: ClipboardCheck },
+  { to: '/admin/rewards', label: 'פרסים', icon: Gift },
+  { to: '/admin/redemptions', label: 'מימושים', icon: ShoppingBag },
+  { to: '/admin/calendar', label: 'לוח שבועי', icon: CalendarDays },
+  { to: '/admin/feedback', label: 'משוב', icon: MessageSquare },
+  { to: '/admin/players', label: 'שחקנים', icon: Users },
+]
 
 export default function AdminLayout() {
   const { profile, signOut } = useAuth()
@@ -39,77 +60,24 @@ export default function AdminLayout() {
           )}
         </div>
         <nav className="hidden md:flex items-center gap-2">
-          <NavLink
-            to="/admin"
-            end
-            className={({ isActive }) =>
-              `px-3 py-1.5 rounded text-sm font-medium transition-colors ${isActive ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`
-            }
-          >
-            דשבורד
-          </NavLink>
-          <NavLink
-            to="/admin/chores"
-            className={({ isActive }) =>
-              `px-3 py-1.5 rounded text-sm font-medium transition-colors ${isActive ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`
-            }
-          >
-            משימות
-          </NavLink>
-          <NavLink
-            to="/admin/completions"
-            className={({ isActive }) =>
-              `px-3 py-1.5 rounded text-sm font-medium transition-colors ${isActive ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`
-            }
-          >
-            הגשות
-          </NavLink>
-          <NavLink
-            to="/admin/rewards"
-            className={({ isActive }) =>
-              `px-3 py-1.5 rounded text-sm font-medium transition-colors ${isActive ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`
-            }
-          >
-            פרסים
-          </NavLink>
-          <NavLink
-            to="/admin/redemptions"
-            className={({ isActive }) =>
-              `px-3 py-1.5 rounded text-sm font-medium transition-colors ${isActive ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`
-            }
-          >
-            מימושים
-          </NavLink>
-          <NavLink
-            to="/admin/calendar"
-            className={({ isActive }) =>
-              `px-3 py-1.5 rounded text-sm font-medium transition-colors ${isActive ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`
-            }
-          >
-            לוח שבועי
-          </NavLink>
-          <NavLink
-            to="/admin/feedback"
-            className={({ isActive }) =>
-              `px-3 py-1.5 rounded text-sm font-medium transition-colors ${isActive ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`
-            }
-          >
-            משוב
-          </NavLink>
-          <NavLink
-            to="/admin/players"
-            className={({ isActive }) =>
-              `px-3 py-1.5 rounded text-sm font-medium transition-colors ${isActive ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`
-            }
-          >
-            שחקנים
-          </NavLink>
+          {adminNavItems.map(({ to, label, end }) => (
+            <NavLink
+              key={to}
+              to={to}
+              end={end}
+              className={({ isActive }) =>
+                `px-3 py-1.5 rounded text-sm font-medium transition-colors ${isActive ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`
+              }
+            >
+              {label}
+            </NavLink>
+          ))}
         </nav>
         <Button variant="outline" size="sm" onClick={signOut}>
           יציאה
         </Button>
       </header>
-      <main className="p-4 max-w-7xl mx-auto">
+      <main className="p-4 max-w-7xl mx-auto pb-20 md:pb-4">
         {proposal && profile && (
           <AliasVoteBanner
             proposal={proposal}
@@ -121,6 +89,29 @@ export default function AdminLayout() {
         )}
         <Outlet />
       </main>
+
+      {/* Mobile bottom navigation */}
+      <nav className="md:hidden fixed bottom-0 inset-x-0 bg-card border-t z-50 flex overflow-x-auto" dir="rtl">
+        {adminNavItems.map(({ to, label, icon: Icon, end }) => (
+          <NavLink
+            key={to}
+            to={to}
+            end={end}
+            className={({ isActive }) =>
+              `flex flex-col items-center justify-center gap-0.5 px-3 py-2 min-w-[4rem] flex-1 text-xs font-medium transition-colors shrink-0 ${
+                isActive ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
+              }`
+            }
+          >
+            {({ isActive }) => (
+              <>
+                <Icon className={`h-5 w-5 ${isActive ? 'stroke-[2.5]' : ''}`} />
+                <span>{label}</span>
+              </>
+            )}
+          </NavLink>
+        ))}
+      </nav>
     </div>
   )
 }
