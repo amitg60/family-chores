@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Share2 } from 'lucide-react'
 import { QRCodeSVG as QRCode } from 'qrcode.react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog'
 import { Button } from '../ui/button'
@@ -17,6 +18,8 @@ export default function InviteDialog({ open, onOpenChange, generateInvite }: Inv
   const [loading, setLoading]           = useState(false)
   const [error, setError]               = useState<string | null>(null)
   const [copied, setCopied]             = useState(false)
+
+  const canShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function'
 
   function reset() {
     setStep('role')
@@ -45,6 +48,20 @@ export default function InviteDialog({ open, onOpenChange, generateInvite }: Inv
     await navigator.clipboard.writeText(inviteUrl)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
+  }
+
+  async function handleShare() {
+    try {
+      await navigator.share({
+        title: 'הזמנה למשפחה',
+        text: 'לחץ על הקישור כדי להצטרף למשפחה שלנו',
+        url: inviteUrl,
+      })
+    } catch (err) {
+      if ((err as Error).name !== 'AbortError') {
+        console.error('Share failed:', err)
+      }
+    }
   }
 
   return (
@@ -81,6 +98,12 @@ export default function InviteDialog({ open, onOpenChange, generateInvite }: Inv
               <QRCode value={inviteUrl} size={160} />
             </div>
             <p className="text-xs text-muted-foreground text-center">הקישור תקף ל-5 שעות</p>
+            {canShare && (
+              <Button className="w-full h-12 text-base gap-2" onClick={handleShare} aria-label="שתף קישור">
+                <Share2 className="h-5 w-5" />
+                שתף קישור
+              </Button>
+            )}
             <Button variant="outline" className="w-full" onClick={handleCopy} aria-label="העתק קישור">
               {copied ? 'הועתק!' : 'העתק קישור'}
             </Button>
