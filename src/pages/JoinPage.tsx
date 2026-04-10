@@ -23,6 +23,7 @@ export default function JoinPage() {
   const [password, setPassword]       = useState('')
   const [loading, setLoading]         = useState(false)
   const [error, setError]             = useState<string | null>(null)
+  const [emailSent, setEmailSent]     = useState(false)
 
   useEffect(() => {
     if (!token) {
@@ -42,14 +43,13 @@ export default function JoinPage() {
     setLoading(true)
     setError(null)
 
-    const { data, error: signUpError } = await supabase.auth.signUp({ email, password })
+    const { data, error: signUpError } = await supabase.auth.signUp({
+      email,
+      password,
+      options: { emailRedirectTo: window.location.origin + '/login' },
+    })
     if (signUpError || !data.user) {
-      const msg = signUpError?.message ?? ''
-      if (msg.toLowerCase().includes('sending confirmation mail') || msg.toLowerCase().includes('email')) {
-        setError('שגיאה בשליחת מייל אימות. בקש מהמנהל לכבות אימות מייל בהגדרות Supabase, או נסה שנית מאוחר יותר.')
-      } else {
-        setError(msg || 'שגיאה ביצירת החשבון')
-      }
+      setError(signUpError?.message ?? 'שגיאה ביצירת החשבון')
       setLoading(false)
       return
     }
@@ -65,7 +65,12 @@ export default function JoinPage() {
       return
     }
 
-    navigate('/')
+    if (data.session) {
+      navigate('/')
+    } else {
+      setEmailSent(true)
+    }
+    setLoading(false)
   }
 
   if (validating) {
@@ -84,6 +89,24 @@ export default function JoinPage() {
             <p role="alert" className="text-destructive font-medium">
               הקישור אינו תקף או שפג תוקפו — בקש מהמנהל קישור חדש
             </p>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
+  if (emailSent) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background p-4" dir="rtl">
+        <Card className="w-full max-w-md">
+          <CardContent className="py-8 text-center space-y-3">
+            <p className="text-2xl">📧</p>
+            <p className="font-semibold text-lg">בדוק את תיבת הדואר שלך</p>
+            <p className="text-sm text-muted-foreground">
+              שלחנו קישור אימות לכתובת <span className="font-medium">{email}</span>.
+              לאחר האישור תוכל להתחבר.
+            </p>
+            <p className="text-xs text-muted-foreground">לא קיבלת? בדוק גם את תיקיית הספאם.</p>
           </CardContent>
         </Card>
       </div>
