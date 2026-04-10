@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../../contexts/AuthContext'
 import { useAchievements } from '../../../hooks/useAchievements'
 import { useCoinTransactions } from '../../../hooks/useCoinTransactions'
@@ -9,6 +9,8 @@ import AliasProposalDialog from '../../../components/shared/AliasProposalDialog'
 import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card'
 import { Avatar, AvatarFallback, AvatarImage } from '../../../components/ui/avatar'
 import { Button } from '../../../components/ui/button'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../../../components/ui/dialog'
+import { supabase } from '../../../lib/supabase'
 import type { CoinReason } from '../../../types/database'
 
 const TOTAL_ACHIEVEMENTS = 7
@@ -25,12 +27,26 @@ const REASON_LABEL: Record<CoinReason, string> = {
 type Tab = 'coins' | 'achievements' | 'trades'
 
 export default function ProfilePage() {
-  const { profile } = useAuth()
+  const navigate = useNavigate()
+  const { profile, signOut } = useAuth()
   const [activeTab, setActiveTab] = useState<Tab>('coins')
   const { achievements, earnedIds, loading: achLoading } = useAchievements(profile?.id)
   const { transactions, totalEarned, totalSpent, loading: txLoading, error: txError } = useCoinTransactions(profile?.id)
   const { family, loading: familyLoading } = useFamily()
   const [aliasOpen, setAliasOpen] = useState(false)
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [deleteSubmitting, setDeleteSubmitting] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+
+  async function handleDeleteAccount() {
+    if (!profile) return
+    setDeleteSubmitting(true)
+    setDeleteError(null)
+    const { error } = await supabase.rpc('delete_family_member', { p_user_id: profile.id })
+    if (error) { setDeleteError(error.message); setDeleteSubmitting(false); return }
+    await signOut()
+    navigate('/')
+  }
 
   const loading = txLoading || achLoading
 
@@ -184,6 +200,30 @@ export default function ProfilePage() {
         </Card>
       )}
       </div>
+
+      <div className="border-t pt-4">
+        <Button variant="destructive" size="sm" onClick={() => setDeleteOpen(true)}>
+          מחק את החשבון שלי
+        </Button>
+      </div>
+
+      <Dialog open={deleteOpen} onOpenChange={open => { if (!open) { setDeleteOpen(false); setDeleteError(null) } }}>
+        <DialogContent dir="rtl">
+          <DialogHeader>
+            <DialogTitle>מחיקת החשבון שלי</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            האם למחוק את החשבון שלך לצמיתות? פעולה זו אינה ניתנת לביטול.
+          </p>
+          {deleteError && <p className="text-sm text-destructive">{deleteError}</p>}
+          <div className="flex gap-2 justify-end mt-2">
+            <Button variant="outline" onClick={() => setDeleteOpen(false)} disabled={deleteSubmitting}>ביטול</Button>
+            <Button variant="destructive" onClick={handleDeleteAccount} disabled={deleteSubmitting}>
+              {deleteSubmitting ? 'מוחק...' : 'מחק חשבון'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {family && (
         <AliasProposalDialog

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../../contexts/AuthContext'
 import { useFamilyMembers } from '../../../hooks/useFamilyMembers'
 import { useInvites } from '../../../hooks/useInvites'
@@ -16,7 +17,8 @@ import AliasProposalDialog from '../../../components/shared/AliasProposalDialog'
 import type { Profile } from '../../../types/database'
 
 export default function PlayersPage() {
-  const { profile: adminProfile }                      = useAuth()
+  const navigate                                       = useNavigate()
+  const { profile: adminProfile, signOut }             = useAuth()
   const { members, loading, error, refetch }           = useFamilyMembers()
   const { invites, cancelInvite, generateInvite }      = useInvites()
   const { family, loading: familyLoading }             = useFamily()
@@ -28,6 +30,9 @@ export default function PlayersPage() {
   const [bonusSubmitting, setBonusSubmitting]          = useState(false)
   const [inviteOpen, setInviteOpen]                    = useState(false)
   const [aliasOpen, setAliasOpen]                      = useState(false)
+  const [deleteTarget, setDeleteTarget]                = useState<Profile | null>(null)
+  const [deleteSubmitting, setDeleteSubmitting]        = useState(false)
+  const [selfDeleteOpen, setSelfDeleteOpen]            = useState(false)
 
   const players = members.filter(m => m.role === 'player')
 
@@ -62,6 +67,24 @@ export default function PlayersPage() {
       setBonusAmount('')
       refetch()
     }
+  }
+
+  async function handleDeleteMember() {
+    if (!deleteTarget) return
+    setDeleteSubmitting(true)
+    setActionError(null)
+    const { error } = await supabase.rpc('delete_family_member', { p_user_id: deleteTarget.id })
+    setDeleteSubmitting(false)
+    if (error) { setActionError(error.message) } else { setDeleteTarget(null); refetch() }
+  }
+
+  async function handleSelfDelete() {
+    if (!adminProfile) return
+    setDeleteSubmitting(true)
+    const { error } = await supabase.rpc('delete_family_member', { p_user_id: adminProfile.id })
+    if (error) { setActionError(error.message); setDeleteSubmitting(false); return }
+    await signOut()
+    navigate('/')
   }
 
   function formatCreatedAt(createdAt: string) {
@@ -113,6 +136,9 @@ export default function PlayersPage() {
               <Button size="sm" variant="secondary" onClick={() => { setBonusTarget(player); setBonusAmount('') }}>
                 מענק בונוס
               </Button>
+              <Button size="sm" variant="destructive" onClick={() => setDeleteTarget(player)}>
+                מחק
+              </Button>
             </CardContent>
           </Card>
         ))}
@@ -162,6 +188,11 @@ export default function PlayersPage() {
                 </div>
               </div>
             </div>
+            <div className="border-t pt-3">
+              <Button variant="destructive" size="sm" onClick={() => setSelfDeleteOpen(true)}>
+                מחק את החשבון שלי
+              </Button>
+            </div>
           </CardContent>
         </Card>
       )}
@@ -186,6 +217,42 @@ export default function PlayersPage() {
               onClick={handleGrantBonus}
             >
               {bonusSubmitting ? 'שולח...' : 'מענק'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete member confirmation */}
+      <Dialog open={!!deleteTarget} onOpenChange={open => { if (!open) setDeleteTarget(null) }}>
+        <DialogContent dir="rtl">
+          <DialogHeader>
+            <DialogTitle>מחיקת משתמש</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            האם למחוק את <span className="font-semibold">{deleteTarget?.name}</span>? פעולה זו אינה ניתנת לביטול.
+          </p>
+          <div className="flex gap-2 justify-end mt-2">
+            <Button variant="outline" onClick={() => setDeleteTarget(null)} disabled={deleteSubmitting}>ביטול</Button>
+            <Button variant="destructive" onClick={handleDeleteMember} disabled={deleteSubmitting}>
+              {deleteSubmitting ? 'מוחק...' : 'מחק'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Admin self-delete confirmation */}
+      <Dialog open={selfDeleteOpen} onOpenChange={open => { if (!open) setSelfDeleteOpen(false) }}>
+        <DialogContent dir="rtl">
+          <DialogHeader>
+            <DialogTitle>מחיקת החשבון שלי</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            האם למחוק את החשבון שלך לצמיתות? פעולה זו אינה ניתנת לביטול.
+          </p>
+          <div className="flex gap-2 justify-end mt-2">
+            <Button variant="outline" onClick={() => setSelfDeleteOpen(false)} disabled={deleteSubmitting}>ביטול</Button>
+            <Button variant="destructive" onClick={handleSelfDelete} disabled={deleteSubmitting}>
+              {deleteSubmitting ? 'מוחק...' : 'מחק חשבון'}
             </Button>
           </div>
         </DialogContent>
