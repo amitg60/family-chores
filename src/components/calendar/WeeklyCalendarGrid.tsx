@@ -159,8 +159,8 @@ export default function WeeklyCalendarGrid({
 
   return (
     <>
-      {/* ── Mobile: day-picker + single-day view ── */}
-      <div className="md:hidden" dir="rtl">
+      {/* ── Mobile portrait: day-picker + single-day view ── */}
+      <div className="landscape:hidden md:hidden" dir="rtl">
         {/* Day selector */}
         <div className="flex gap-1 overflow-x-auto pb-1 mb-3">
           {DAYS.map(day => (
@@ -203,8 +203,8 @@ export default function WeeklyCalendarGrid({
         </div>
       </div>
 
-      {/* ── Desktop/landscape: full 7-column grid ── */}
-      <div className="hidden md:block overflow-x-auto" dir="rtl">
+      {/* ── Landscape / desktop: full 7-column grid ── */}
+      <div className="hidden landscape:block md:block overflow-x-auto" dir="rtl">
         <div className="min-w-[600px]">
           {/* Header row: empty corner + 7 day labels */}
           <div className="grid grid-cols-8 gap-1 mb-1">
