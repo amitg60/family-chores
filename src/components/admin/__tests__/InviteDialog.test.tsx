@@ -8,6 +8,7 @@ vi.mock('qrcode.react', () => ({
 }))
 
 const mockGenerateInvite = vi.fn()
+const mockShare = vi.fn()
 
 const defaultProps = {
   open: true,
@@ -23,6 +24,8 @@ describe('InviteDialog', () => {
       value: { origin: 'http://localhost:5173' },
       writable: true,
     })
+    // Remove navigator.share by default (desktop fallback)
+    Object.defineProperty(navigator, 'share', { value: undefined, writable: true, configurable: true })
   })
 
   it('renders role selection step with two role cards', () => {
@@ -83,6 +86,67 @@ describe('InviteDialog', () => {
 
     await waitFor(() => {
       expect(screen.getByRole('alert')).toHaveTextContent('permission denied')
+    })
+  })
+
+  describe('share button', () => {
+    it('does not show share button when navigator.share is unavailable', async () => {
+      mockGenerateInvite.mockResolvedValue('tok123')
+      render(<InviteDialog {...defaultProps} />)
+      fireEvent.click(screen.getByText('צור קישור'))
+
+      await waitFor(() => screen.getByTestId('qrcode'))
+
+      expect(screen.queryByRole('button', { name: 'שתף קישור' })).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'העתק קישור' })).toBeInTheDocument()
+    })
+
+    it('shows share button when navigator.share is available', async () => {
+      Object.defineProperty(navigator, 'share', { value: mockShare, writable: true, configurable: true })
+      mockShare.mockResolvedValue(undefined)
+      mockGenerateInvite.mockResolvedValue('tok123')
+      render(<InviteDialog {...defaultProps} />)
+      fireEvent.click(screen.getByText('צור קישור'))
+
+      await waitFor(() => screen.getByRole('button', { name: 'שתף קישור' }))
+
+      expect(screen.getByRole('button', { name: 'שתף קישור' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'העתק קישור' })).toBeInTheDocument()
+    })
+
+    it('calls navigator.share with invite URL when share button is clicked', async () => {
+      Object.defineProperty(navigator, 'share', { value: mockShare, writable: true, configurable: true })
+      mockShare.mockResolvedValue(undefined)
+      mockGenerateInvite.mockResolvedValue('tok123')
+      render(<InviteDialog {...defaultProps} />)
+      fireEvent.click(screen.getByText('צור קישור'))
+
+      await waitFor(() => screen.getByRole('button', { name: 'שתף קישור' }))
+      fireEvent.click(screen.getByRole('button', { name: 'שתף קישור' }))
+
+      await waitFor(() => {
+        expect(mockShare).toHaveBeenCalledWith({
+          title: 'הזמנה למשפחה',
+          text: 'לחץ על הקישור כדי להצטרף למשפחה שלנו',
+          url: 'http://localhost:5173/join?token=tok123',
+        })
+      })
+    })
+
+    it('silently ignores AbortError when user cancels the share sheet', async () => {
+      const consoleSpy = vi.spyOn(console, 'error')
+      Object.defineProperty(navigator, 'share', { value: mockShare, writable: true, configurable: true })
+      const abortError = new DOMException('Share cancelled', 'AbortError')
+      mockShare.mockRejectedValue(abortError)
+      mockGenerateInvite.mockResolvedValue('tok123')
+      render(<InviteDialog {...defaultProps} />)
+      fireEvent.click(screen.getByText('צור קישור'))
+
+      await waitFor(() => screen.getByRole('button', { name: 'שתף קישור' }))
+      fireEvent.click(screen.getByRole('button', { name: 'שתף קישור' }))
+
+      await waitFor(() => expect(mockShare).toHaveBeenCalled())
+      expect(consoleSpy).not.toHaveBeenCalled()
     })
   })
 })
