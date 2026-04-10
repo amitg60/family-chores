@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar'
 import { Button } from '../ui/button'
 import { Badge } from '../ui/badge'
@@ -119,6 +119,9 @@ export default function WeeklyCalendarGrid({
   onUnpin,
   onToggleReminder,
 }: WeeklyCalendarGridProps) {
+  const todayIndex = new Date().getDay()
+  const [selectedDay, setSelectedDay] = useState(todayIndex)
+
   // Stable colour per user — first seen = first colour
   const colorMap = useMemo(() => {
     const ids = [...new Set(assignments.map(a => a.user_id))]
@@ -140,49 +143,102 @@ export default function WeeklyCalendarGrid({
     )
   }
 
+  function renderCard(a: AssignmentWithDetails) {
+    return (
+      <AssignmentCard
+        key={a.id}
+        assignment={a}
+        color={colorMap[a.user_id] ?? 'bg-gray-100 border-gray-300'}
+        isOwn={a.user_id === currentUserId}
+        onChangePin={onChangePin}
+        onUnpin={onUnpin}
+        onToggleReminder={onToggleReminder}
+      />
+    )
+  }
+
   return (
-    <div className="overflow-x-auto" dir="rtl">
-      <div className="min-w-[600px]">
-        {/* Header row: empty corner + 7 day labels */}
-        <div className="grid grid-cols-8 gap-1 mb-1">
-          <div />
+    <>
+      {/* ── Mobile: day-picker + single-day view ── */}
+      <div className="md:hidden" dir="rtl">
+        {/* Day selector */}
+        <div className="flex gap-1 overflow-x-auto pb-1 mb-3">
           {DAYS.map(day => (
-            <div
+            <button
               key={day.index}
-              className="text-center text-xs font-semibold text-muted-foreground py-1"
+              onClick={() => setSelectedDay(day.index)}
+              className={`shrink-0 px-3 py-1.5 rounded text-sm font-medium transition-colors ${
+                selectedDay === day.index
+                  ? 'bg-primary text-primary-foreground'
+                  : day.index === todayIndex
+                  ? 'bg-muted font-semibold'
+                  : 'hover:bg-muted text-muted-foreground'
+              }`}
             >
               {day.label}
-            </div>
+            </button>
           ))}
         </div>
-        {/* Slot rows */}
-        {SLOTS.map(slot => (
-          <div key={slot.key} className="grid grid-cols-8 gap-1 mb-1">
-            <div className="text-xs text-muted-foreground pt-1 leading-tight">
-              {slot.label}
-            </div>
+
+        {/* Slots for the selected day */}
+        <div className="space-y-3">
+          {SLOTS.map(slot => {
+            const cards = cellAssignments(selectedDay, slot.key)
+            return (
+              <div key={slot.key}>
+                <p className="text-xs text-muted-foreground font-medium mb-1">{slot.label}</p>
+                <div
+                  className="min-h-[56px] bg-muted/30 rounded p-2 space-y-1"
+                  data-testid={`cell-${selectedDay}-${slot.key}`}
+                >
+                  {cards.length === 0 ? (
+                    <p className="text-xs text-muted-foreground/60 pt-1">ריק</p>
+                  ) : (
+                    cards.map(renderCard)
+                  )}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* ── Desktop/landscape: full 7-column grid ── */}
+      <div className="hidden md:block overflow-x-auto" dir="rtl">
+        <div className="min-w-[600px]">
+          {/* Header row: empty corner + 7 day labels */}
+          <div className="grid grid-cols-8 gap-1 mb-1">
+            <div />
             {DAYS.map(day => (
               <div
                 key={day.index}
-                className="min-h-[60px] bg-muted/30 rounded p-1 space-y-1"
-                data-testid={`cell-${day.index}-${slot.key}`}
+                className={`text-center text-xs font-semibold py-1 ${
+                  day.index === todayIndex ? 'text-primary' : 'text-muted-foreground'
+                }`}
               >
-                {cellAssignments(day.index, slot.key).map(a => (
-                  <AssignmentCard
-                    key={a.id}
-                    assignment={a}
-                    color={colorMap[a.user_id] ?? 'bg-gray-100 border-gray-300'}
-                    isOwn={a.user_id === currentUserId}
-                    onChangePin={onChangePin}
-                    onUnpin={onUnpin}
-                    onToggleReminder={onToggleReminder}
-                  />
-                ))}
+                {day.label}
               </div>
             ))}
           </div>
-        ))}
+          {/* Slot rows */}
+          {SLOTS.map(slot => (
+            <div key={slot.key} className="grid grid-cols-8 gap-1 mb-1">
+              <div className="text-xs text-muted-foreground pt-1 leading-tight">
+                {slot.label}
+              </div>
+              {DAYS.map(day => (
+                <div
+                  key={day.index}
+                  className="min-h-[60px] bg-muted/30 rounded p-1 space-y-1"
+                  data-testid={`cell-${day.index}-${slot.key}`}
+                >
+                  {cellAssignments(day.index, slot.key).map(renderCard)}
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
       </div>
-    </div>
+    </>
   )
 }
