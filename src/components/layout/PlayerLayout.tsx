@@ -158,7 +158,7 @@ export default function PlayerLayout() {
             {({ isActive }) => (
               <>
                 <Icon className={`h-5 w-5 ${isActive ? 'stroke-[2.5]' : ''}`} />
-                <span>{label}</span>
+                <span className="whitespace-nowrap">{label}</span>
               </>
             )}
           </NavLink>
