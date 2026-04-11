@@ -1,5 +1,5 @@
 export type UserRole = 'admin' | 'player'
-export type ChoreStatus = 'active' | 'pending_approval' | 'archived'
+export type ChoreStatus = 'active' | 'pending_approval' | 'archived' | 'deleted'
 export type ChoreDifficulty = 'easy' | 'medium' | 'hard'
 export type AssignmentStatus = 'pending' | 'in_progress' | 'completed' | 'overdue' | 'failed'
 export type CalendarSlot = 'morning' | 'noon' | 'afternoon'
