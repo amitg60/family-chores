@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
@@ -119,6 +119,60 @@ describe('ChoresPage', () => {
     await waitFor(() => {
       expect(mockUpdate).toHaveBeenCalledWith({ status: 'archived' })
       expect(mockRefetch).toHaveBeenCalled()
+    })
+  })
+
+  it('shows delete button for each active chore', () => {
+    mockUseChores.mockReturnValue({ chores: [activeChore], loading: false, error: null, refetch: mockRefetch })
+    renderChoresPage()
+    expect(screen.getByRole('button', { name: 'מחק' })).toBeInTheDocument()
+  })
+
+  it('clicking delete button opens confirmation dialog with chore title', async () => {
+    mockUseChores.mockReturnValue({ chores: [activeChore], loading: false, error: null, refetch: mockRefetch })
+    renderChoresPage()
+    await userEvent.click(screen.getByRole('button', { name: 'מחק' }))
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    expect(within(screen.getByRole('dialog')).getByText(/כלי מטבח/)).toBeInTheDocument()
+  })
+
+  it('confirming delete calls supabase update with status deleted and refetches', async () => {
+    mockUseChores.mockReturnValue({ chores: [activeChore], loading: false, error: null, refetch: mockRefetch })
+    const mockEq = vi.fn().mockResolvedValue({ error: null })
+    const mockUpdate = vi.fn().mockReturnValue({ eq: mockEq })
+    mockFrom.mockReturnValue({ update: mockUpdate })
+
+    renderChoresPage()
+    await userEvent.click(screen.getByRole('button', { name: 'מחק' }))
+    await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'מחק' }))
+
+    await waitFor(() => {
+      expect(mockUpdate).toHaveBeenCalledWith({ status: 'deleted' })
+      expect(mockRefetch).toHaveBeenCalled()
+    })
+  })
+
+  it('cancelling dialog does not call supabase update', async () => {
+    mockUseChores.mockReturnValue({ chores: [activeChore], loading: false, error: null, refetch: mockRefetch })
+    renderChoresPage()
+    await userEvent.click(screen.getByRole('button', { name: 'מחק' }))
+    await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'ביטול' }))
+    expect(mockFrom).not.toHaveBeenCalled()
+  })
+
+  it('shows error alert when delete mutation fails', async () => {
+    mockUseChores.mockReturnValue({ chores: [activeChore], loading: false, error: null, refetch: mockRefetch })
+    const mockEq = vi.fn().mockResolvedValue({ error: { message: 'RLS denied' } })
+    const mockUpdate = vi.fn().mockReturnValue({ eq: mockEq })
+    mockFrom.mockReturnValue({ update: mockUpdate })
+
+    renderChoresPage()
+    await userEvent.click(screen.getByRole('button', { name: 'מחק' }))
+    await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'מחק' }))
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent('שגיאה במחיקת המשימה')
+      expect(mockRefetch).not.toHaveBeenCalled()
     })
   })
 

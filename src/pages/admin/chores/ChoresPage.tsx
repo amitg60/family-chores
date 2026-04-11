@@ -8,6 +8,14 @@ import { Button } from '../../../components/ui/button'
 import { Badge } from '../../../components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card'
 import { Separator } from '../../../components/ui/separator'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '../../../components/ui/dialog'
 import type { Chore, ChoreDifficulty } from '../../../types/database'
 
 const difficultyLabel: Record<ChoreDifficulty, string> = {
@@ -27,6 +35,7 @@ export default function ChoresPage() {
   const { members } = useFamilyMembers()
   const { profile } = useAuth()
   const [mutationError, setMutationError] = useState<string | null>(null)
+  const [choreToDelete, setChoreToDelete] = useState<Chore | null>(null)
 
   const activeChores = chores.filter(c => c.status === 'active')
   const pendingChores = chores.filter(c => c.status === 'pending_approval')
@@ -55,6 +64,18 @@ export default function ChoresPage() {
     setMutationError(null)
     const { error } = await supabase.from('chores').update({ status: 'archived' }).eq('id', chore.id)
     if (error) { setMutationError('שגיאה בדחיית ההצעה') } else { refetch() }
+  }
+
+  async function deleteChore(chore: Chore) {
+    setMutationError(null)
+    const { error } = await supabase.from('chores').update({ status: 'deleted' }).eq('id', chore.id)
+    if (error) {
+      setChoreToDelete(null)
+      setMutationError('שגיאה במחיקת המשימה')
+    } else {
+      setChoreToDelete(null)
+      refetch()
+    }
   }
 
   if (loading) {
@@ -136,6 +157,9 @@ export default function ChoresPage() {
                     <Button size="sm" variant="outline" onClick={() => archiveChore(chore)}>
                       ארכיון
                     </Button>
+                    <Button size="sm" variant="destructive" onClick={() => setChoreToDelete(chore)}>
+                      מחק
+                    </Button>
                   </div>
                 </div>
               </div>
@@ -143,6 +167,26 @@ export default function ChoresPage() {
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={choreToDelete !== null} onOpenChange={(open) => { if (!open) setChoreToDelete(null) }}>
+        <DialogContent dir="rtl">
+          <DialogHeader>
+            <DialogTitle>מחיקת משימה</DialogTitle>
+            <DialogDescription>
+              האם למחוק את המשימה &quot;{choreToDelete?.title}&quot;? לא ניתן לשחזר.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setChoreToDelete(null)}>ביטול</Button>
+            <Button
+              variant="destructive"
+              onClick={() => { if (choreToDelete) deleteChore(choreToDelete) }}
+            >
+              מחק
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
