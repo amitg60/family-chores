@@ -28,6 +28,7 @@ export function useChores(): UseChoresResult {
       .from('chores')
       .select('*')
       .neq('status', 'archived')
+      .neq('status', 'deleted')
       .order('created_at', { ascending: false })
     if (!mountedRef.current) return
     if (error) {

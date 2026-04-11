@@ -71,4 +71,13 @@ describe('useChores', () => {
 
     await waitFor(() => expect(result.current.chores[0].title).toBe('כיבוי אורות'))
   })
+
+  it('excludes both archived and deleted chores from query', async () => {
+    const mock = makeFromMock({ data: [], error: null })
+    mockFrom.mockReturnValue(mock)
+    renderHook(() => useChores())
+    await waitFor(() => expect(mock.order).toHaveBeenCalled())
+    expect(mock.neq).toHaveBeenCalledWith('status', 'archived')
+    expect(mock.neq).toHaveBeenCalledWith('status', 'deleted')
+  })
 })
