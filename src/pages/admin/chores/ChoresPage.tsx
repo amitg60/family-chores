@@ -70,7 +70,6 @@ export default function ChoresPage() {
     setMutationError(null)
     const { error } = await supabase.from('chores').update({ status: 'deleted' }).eq('id', chore.id)
     if (error) {
-      setChoreToDelete(null)
       setMutationError('שגיאה במחיקת המשימה')
     } else {
       setChoreToDelete(null)
@@ -176,6 +175,9 @@ export default function ChoresPage() {
               האם למחוק את המשימה &quot;{choreToDelete?.title}&quot;? לא ניתן לשחזר.
             </DialogDescription>
           </DialogHeader>
+          {mutationError && (
+            <p role="alert" className="text-sm text-destructive">{mutationError}</p>
+          )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setChoreToDelete(null)}>ביטול</Button>
             <Button

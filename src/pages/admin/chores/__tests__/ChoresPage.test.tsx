@@ -171,7 +171,7 @@ describe('ChoresPage', () => {
     await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'מחק' }))
 
     await waitFor(() => {
-      expect(screen.getByRole('alert')).toHaveTextContent('שגיאה במחיקת המשימה')
+      expect(within(screen.getByRole('dialog')).getByRole('alert')).toHaveTextContent('שגיאה במחיקת המשימה')
       expect(mockRefetch).not.toHaveBeenCalled()
     })
   })
