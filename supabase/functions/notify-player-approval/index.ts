@@ -134,10 +134,13 @@ Deno.serve(async (req) => {
   if (!res.ok) {
     const body = await res.text()
     console.error(`Resend error for ${playerEmail}: ${res.status} ${body}`)
-  } else {
-    console.log(`Player approval notification sent to ${playerEmail}`)
+    // Return 200 (not 500) to avoid webhook retry loops that would send duplicate emails
+    return new Response(JSON.stringify({ ok: false, error: 'email_send_failed' }), {
+      headers: { 'Content-Type': 'application/json' },
+    })
   }
 
+  console.log(`Player approval notification sent to ${playerEmail}`)
   return new Response(JSON.stringify({ ok: true }), {
     headers: { 'Content-Type': 'application/json' },
   })
