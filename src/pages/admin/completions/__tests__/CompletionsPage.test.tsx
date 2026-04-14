@@ -106,4 +106,15 @@ describe('CompletionsPage', () => {
     await userEvent.click(screen.getByRole('button', { name: 'אשר' }))
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('שגיאה באישור ההגשה'))
   })
+
+  it('shows specific error and refetches when completion is already approved by another admin', async () => {
+    mockUsePendingCompletions.mockReturnValue({ completions: [fakeCompletion], loading: false, error: null, refetch: mockRefetch })
+    mockRpc.mockResolvedValue({ error: { message: 'Completion is not pending' } })
+    renderPage()
+    await userEvent.click(screen.getByRole('button', { name: 'אשר' }))
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent('הגשה זו כבר אושרה על ידי מנהל אחר')
+      expect(mockRefetch).toHaveBeenCalled()
+    })
+  })
 })

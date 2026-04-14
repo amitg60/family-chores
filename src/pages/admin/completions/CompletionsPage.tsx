@@ -33,7 +33,15 @@ export default function CompletionsPage() {
   async function approve(completion: CompletionWithDetails) {
     setActionError(null)
     const { error } = await supabase.rpc('approve_completion', { completion_id: completion.id })
-    if (error) { setActionError('שגיאה באישור ההגשה'); return }
+    if (error) {
+      if (error.message.includes('not pending')) {
+        setActionError('הגשה זו כבר אושרה על ידי מנהל אחר')
+        refetch()
+      } else {
+        setActionError('שגיאה באישור ההגשה')
+      }
+      return
+    }
     if (completion.photo_url) await deletePhoto(completion.photo_url)
     refetch()
   }
