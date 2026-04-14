@@ -52,20 +52,19 @@ Deno.serve(async (req) => {
 
   const resendApiKey = Deno.env.get('RESEND_API_KEY')
   const fromEmail = Deno.env.get('FROM_EMAIL')
+  const supabaseUrl = Deno.env.get('SUPABASE_URL')
+  const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
   const appUrl = Deno.env.get('APP_URL') ?? ''
 
-  if (!resendApiKey || !fromEmail) {
-    console.error('Missing required env vars: RESEND_API_KEY or FROM_EMAIL')
+  if (!resendApiKey || !fromEmail || !supabaseUrl || !supabaseServiceKey) {
+    console.error('Missing required env vars: RESEND_API_KEY, FROM_EMAIL, SUPABASE_URL, or SUPABASE_SERVICE_ROLE_KEY')
     return new Response('Server misconfiguration', { status: 500 })
   }
   if (!appUrl) {
     console.warn('APP_URL is not set — CTA links in emails will be empty')
   }
 
-  const supabase = createClient(
-    Deno.env.get('SUPABASE_URL')!,
-    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-  )
+  const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
   const { data: profile, error: profileError } = await supabase
     .from('profiles')
@@ -85,6 +84,7 @@ Deno.serve(async (req) => {
     .single()
 
   if (assignmentError) {
+    // Non-fatal: email sends with placeholder chore name if assignment lookup fails
     console.error('Assignment query failed:', assignmentError)
   }
 
