@@ -16,7 +16,7 @@ function buildAdminEmail(playerName: string, choreTitle: string, coinValue: numb
   <h2 style="color:#1e1b4b;">✅ ${escapeHtml(playerName)} השלים/ה משימה</h2>
   <p>${escapeHtml(playerName)} השלים/ה את המשימה ״<strong>${escapeHtml(choreTitle)}</strong>״ ומחכה לאישורך.</p>
   <p>ערך המשימה: <strong>${coinValue} מטבעות</strong></p>
-  <a href="${appUrl}"
+  <a href="${escapeHtml(appUrl)}"
      style="display:inline-block;background:#6366f1;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;margin-top:16px;font-weight:bold;">
     לאישור ההגשה ←
   </a>

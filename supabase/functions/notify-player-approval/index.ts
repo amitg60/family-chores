@@ -17,7 +17,7 @@ function buildPlayerEmail(playerName: string, choreTitle: string, coinValue: num
   <p>שלום <strong>${escapeHtml(playerName)}</strong>,</p>
   <p>המשימה ״<strong>${escapeHtml(choreTitle)}</strong>״ אושרה על ידי המנהל.</p>
   <p>זוכו לחשבונך <strong>${coinValue} מטבעות</strong>!</p>
-  <a href="${appUrl}"
+  <a href="${escapeHtml(appUrl)}"
      style="display:inline-block;background:#6366f1;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;margin-top:16px;font-weight:bold;">
     לצפייה ביתרתך ←
   </a>
@@ -96,7 +96,8 @@ Deno.serve(async (req) => {
     .single()
 
   if (profileError) {
-    console.error('Profile query failed:', profileError)
+    // Non-fatal: email sends addressed to fallback name 'שחקן' if profile lookup fails
+    console.warn(`Profile query failed for ${newRecord.completed_by} — using fallback name:`, profileError)
   }
 
   const { data: assignment, error: assignmentError } = await supabase
@@ -106,8 +107,8 @@ Deno.serve(async (req) => {
     .single()
 
   if (assignmentError) {
-    // Non-fatal: email sends with placeholder chore name if assignment lookup fails
-    console.error('Assignment query failed:', assignmentError)
+    // Non-fatal: email sends with placeholder values (0 coins, generic name) if lookup fails
+    console.warn('Assignment query failed — email will show 0 coins and placeholder chore name:', assignmentError)
   }
 
   const chore = assignment?.chores as { title: string; coin_value: number } | null | undefined
