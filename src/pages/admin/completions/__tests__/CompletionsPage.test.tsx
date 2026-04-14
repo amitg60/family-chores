@@ -104,7 +104,10 @@ describe('CompletionsPage', () => {
     mockRpc.mockResolvedValue({ error: { message: 'DB error' } })
     renderPage()
     await userEvent.click(screen.getByRole('button', { name: 'אשר' }))
-    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('שגיאה באישור ההגשה'))
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent('שגיאה באישור ההגשה')
+      expect(mockRefetch).not.toHaveBeenCalled()
+    })
   })
 
   it('shows specific error and refetches when completion is already approved by another admin', async () => {
