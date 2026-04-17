@@ -5,14 +5,14 @@
 
 ## Overview
 
-Enhance the admin notification email to show the player's proof photo inline and include Approve / Reject buttons. Clicking a button opens a hosted confirmation page (no web-app login required). Confirming on that page executes the action directly. The admin never needs to open the family-chores web app.
+Enhance the admin notification email to show the player's proof photo inline and include Approve / Reject buttons. Clicking a button opens a hosted confirmation page (no web-app login required). Confirming on that page executes the action directly. The admin never needs to open the family-chores web app to approve or reject a completion.
 
 ## Scope
 
 - Inline proof photo in admin notification email
 - Approve and Reject buttons linking to a hosted confirmation page
 - HMAC-signed tokens (7-day expiry, per-admin, action-specific)
-- Two-step flow: GET → confirmation page; POST → state change
+- Two-step flow: GET → confirmation page only; POST → state change only
 - Hebrew result pages after confirmation
 - Durable audit log table (`email_action_log`) — **one new DB migration**
 - No new secrets required
@@ -21,51 +21,61 @@ Enhance the admin notification email to show the player's proof photo inline and
 
 ```
 notify-admin-completion sends email to each admin
-  → each admin's email contains their unique approve/reject tokens
+  → each admin's email contains their own unique approve/reject tokens
   → admin sees inline proof photo
   → admin clicks Approve or Reject
 
-        GET ?token=<signed-token>
+        GET ?token=<signed-token>                    ← read-only, no state change
               │
-              ├─ Token invalid/expired ──────────────────→ Terminal: "הקישור אינו תקף"
-              ├─ Completion already actioned ────────────→ Terminal: "הגשה זו כבר טופלה"
-              └─ Token valid, completion pending ────────→ Confirmation page (form, POST)
+              ├─ Token invalid / expired / infra ────→ Terminal: generic failure page
+              ├─ Completion already actioned ────────→ Terminal: "הגשה זו כבר טופלה"
+              └─ Token valid, completion pending ────→ Confirmation page (form, POST)
 
-        POST ?token=<signed-token>
+        POST ?token=<signed-token>                   ← only step that mutates state
               │
-              ├─ Token invalid/expired ──────────────────→ Terminal: "הקישור אינו תקף"
-              ├─ Completion already actioned (RPC check) → Terminal: "הגשה זו כבר טופלה"
-              ├─ Service client failure ─────────────────→ Terminal: "שגיאה זמנית"
-              ├─ Approve → approve_completion() ─────────→ Insert audit row → Terminal: "✅ אושר"
-              └─ Reject  → reject_completion()  ─────────→ Insert audit row → Terminal: "❌ נדחה"
+              ├─ Token invalid / expired / infra ────→ Terminal: generic failure page
+              ├─ RPC throws "not pending" ───────────→ Terminal: "הגשה זו כבר טופלה"
+              ├─ RPC throws unknown error ───────────→ Terminal: generic failure page
+              ├─ Approve → approve_completion() ─────→ Insert audit row → "✅ אושר"
+              └─ Reject  → reject_completion()  ─────→ Insert audit row → "❌ נדחה"
 ```
 
-**GET never changes state. POST is the only step that calls an RPC or writes the audit log.**
+**GET never calls an RPC, never writes to `email_action_log`, and never changes any DB state.**
+**POST is the only step that calls an RPC or writes the audit log.**
 
 ---
 
 ## Security Model
 
-The email link is the sole authentication factor for this flow. No password, session cookie, or app login is required. This is intentional — the HMAC-signed token carries all necessary authorization.
+### Authentication factor
+
+The email link is the sole authentication factor. There is no password, session cookie, JWT, or app login involved. The HMAC-signed token in the URL is the complete authorization credential.
+
+**Consequence**: whoever holds the link can act. If an admin forwards the email, the recipient inherits the ability to approve or reject. This is an accepted, intentional tradeoff for the free-tier email channel; mitigating it (e.g., requiring app login after clicking) is out of scope.
+
+### Identity claim
+
+The `adminId` field embedded in the token identifies the **intended recipient** — the admin whose email address received the notification. It is used exclusively for audit attribution. It does not verify, and must not be presented as evidence of, who physically clicked the link. The system has no mechanism to distinguish the intended recipient from anyone else who obtained the URL.
 
 ### Protections
 
 | Threat | Mitigation |
 |--------|-----------|
-| **Link pre-fetching** (Gmail Safe Browsing, Outlook ATP automatically GET links) | Two-step flow: GET only renders a confirmation page; POST executes the RPC. Pre-fetchers send GET only and never trigger state change. |
-| **Token forgery** | HMAC-SHA256 with `WEBHOOK_SECRET`; forging a valid signature requires the secret. |
+| **Link pre-fetching** (Gmail Safe Browsing, Outlook ATP GET links before user sees them) | Two-step flow: GET only renders a confirmation page and never calls an RPC. Pre-fetchers send GET and cannot trigger a state change. |
+| **Token forgery** | HMAC-SHA256 with `WEBHOOK_SECRET`; a valid signature requires the secret. |
 | **Cross-action substitution** (using an approve token to reject) | `action` is inside the signed payload; any modification invalidates the HMAC. |
 | **Cross-admin substitution** (using another admin's token) | `adminId` is inside the signed payload; modification invalidates the HMAC. |
-| **Token replay before expiry (double-click)** | RPC checks `status = 'pending'` atomically. Second POST returns "already actioned" without a second audit row. |
-| **Token replay after expiry** | Expiry validated on every GET and POST before any DB access. |
-| **Token leakage via email forwarding** | Tokens have a 7-day TTL. The RPCs' `status = 'pending'` check means a leaked token can only trigger an action that was going to happen anyway (the completion was still pending). |
-| **Token leakage via server logs** | Token appears in the URL query string. Supabase Edge Function logs are accessible only to project owners with service-role credentials. No mitigation beyond TTL and single-use business logic is required. |
-| **Brute-force token guessing** | 256-bit HMAC signature makes guessing computationally infeasible. |
+| **Token replay (double-click or retry)** | POST calls the RPC directly; the RPC's atomic `status = 'pending'` check prevents a second state change. A second POST returns "already actioned" with no audit insert. |
+| **Token replay after expiry** | Expiry is validated on every GET and POST before any DB access. |
+| **Token leakage via email forwarding** | Tokens expire after 7 days. A leaked token can only trigger an action that was going to happen anyway (completion still pending). Once actioned, any further use of the token returns "already actioned." |
+| **Token leakage via server logs** | Token appears in the query string. Supabase Edge Function logs are accessible only to project owners with service-role credentials. The 7-day TTL and RPC status check limit the exposure window and blast radius. |
+| **Brute-force guessing** | 256-bit HMAC signature makes guessing computationally infeasible. |
 
-### What the token does NOT protect
+### Accepted risks
 
-- **Admin identity is asserted, not authenticated.** The `adminId` in the token identifies which admin this token was minted for, but does not verify the person clicking is that admin. If an admin forwards the email, the recipient can act on their behalf. This is documented and accepted as out of scope for the free-tier email channel.
-- **Replay between success and expiry.** After a successful action, the token remains cryptographically valid until its expiry. Any subsequent POST returns "already actioned" — no additional state change is possible.
+- Email forwarding transfers the ability to act. This is intentional and out of scope for this flow.
+- `adminId` in the token asserts intended recipient, not verified identity. Audit records record who was meant to act, not who did.
+- `reviewed_by` in `chore_completions` will be `NULL` for email-based actions (service-role client has no `auth.uid()`). The `email_action_log` table is the authoritative record for email-channel actions.
 
 ---
 
@@ -80,22 +90,20 @@ The email link is the sole authentication factor for this flow. No password, ses
 where:
 
 ```
-payload      = completionId + ":" + action + ":" + adminId + ":" + expiry
+payload       = completionId + ":" + action + ":" + adminId + ":" + expiry
 payloadB64url = base64url( UTF-8(payload) )
-sig          = HMAC-SHA256( UTF-8(payload), UTF-8(WEBHOOK_SECRET) )
-sigB64url    = base64url( sig )
+sig           = HMAC-SHA256( UTF-8(payload), UTF-8(WEBHOOK_SECRET) )
+sigB64url     = base64url( sig )
 ```
 
 | Field | Type | Example |
 |-------|------|---------|
 | `completionId` | UUID string | `a1b2c3d4-...` |
 | `action` | `"approve"` or `"reject"` | `"approve"` |
-| `adminId` | UUID string (profile ID) | `e5f6a7b8-...` |
+| `adminId` | UUID string (profile ID of intended recipient) | `e5f6a7b8-...` |
 | `expiry` | Unix timestamp, decimal integer | `1745856000` |
 
-Including `adminId` in the signed payload means:
-- Each admin receives their own unique token — one admin cannot use another's token.
-- The audit log row records which admin was the intended actor.
+Each admin receives their own unique tokens for a given completion. `adminId` in the token ensures that a token minted for admin A cannot be used with admin B's identity claim.
 
 **base64url helpers** (shared between both functions):
 
@@ -116,41 +124,55 @@ function fromB64url(s: string): Uint8Array {
 
 ## Two-Step Flow
 
-### Step 1 — GET (confirmation page, no state change)
+### Step 1 — GET (read-only)
 
-The email buttons are `<a href="...?token=...">` links. On click, the browser sends a GET.
+The email buttons are `<a href="...?token=...">` links. Clicking opens a browser GET.
 
-The handler:
-1. Parses and validates the token (signature + expiry).
-2. Reads `completion.status` from the DB.
-3. If already actioned (status ≠ `'pending'`): returns terminal "already actioned" page.
-4. If pending: returns a confirmation HTML page containing:
-   - The action description in Hebrew ("אתה עומד לאשר" / "אתה עומד לדחות")
-   - A `<form method="POST" action="?token=<token>">` where the form action URL carries the token as a query parameter
-   - A single large submit button ("אשר" / "דחה")
-   - No hidden inputs for the token — it travels in the form action URL
+```
+1. Parse and validate token (signature + expiry)
+   → failure: return generic terminal page (no indication of failure type)
+2. Create Supabase service-role client
+   → failure: log [INFRA], return generic terminal page
+3. Read completion.status from DB
+   → DB error: log [INFRA], return generic terminal page
+   → status ≠ 'pending': return "already actioned" terminal page
+4. Return confirmation HTML page:
+   - Hebrew description of the action ("אתה עומד לאשר את ההגשה" / "אתה עומד לדחות את ההגשה")
+   - <form method="POST" action="?token=<token>">
+   - One submit button labelled "אשר" or "דחה"
+```
 
-The token passes from GET to POST via the form's `action` attribute query string. Since the token was already in the email (an authenticated channel), embedding it in the form URL is not a new exposure.
+**GET stops here. No RPC call. No audit write. No state change of any kind.**
 
-**GET never calls `approve_completion`, `reject_completion`, or `email_action_log`.**
+The token travels from GET to POST via the form's `action` attribute query string. The token was already in the email (an authenticated channel), so embedding it in the form URL is not a new exposure. There are no hidden inputs — the token cannot be silently dropped.
 
-### Step 2 — POST (execution, state change)
+### Step 2 — POST (execution)
 
 The confirmation form submits a POST to the same URL with the token in the query string.
 
-The handler:
-1. Parses and validates the token (signature + expiry).
-2. Calls the RPC.
-3. Inserts an audit row (see Audit Log section).
-4. Returns the result page.
+```
+1. Parse and validate token (signature + expiry)
+   → failure: return generic terminal page
+2. Log: [EMAIL-ACTION] completionId=<uuid> action=<action> adminId=<uuid>
+3. Create Supabase service-role client
+   → failure: log [INFRA], return generic terminal page
+4. Call RPC directly — no pre-check of completion status:
+   - approve: supabase.rpc('approve_completion', { completion_id: completionId })
+   - reject:  supabase.rpc('reject_completion', { completion_id: completionId, reason: 'נדחה על ידי המנהל' })
+   → RPC throws "not pending": return "already actioned" terminal page (no audit insert)
+   → RPC throws anything else: log [INFRA], return generic terminal page (no audit insert)
+5. Insert into email_action_log: { completion_id, admin_id, action, source: 'email' }
+   → insert error: log [INFRA] audit insert failed — return success page anyway (action already committed)
+6. Return success result page ("✅ ההגשה אושרה" or "❌ ההגשה נדחתה")
+```
 
-Token loss is impossible: the token is in the URL at all times, not in session state or form fields that could be cleared.
+**POST does not pre-check completion status before calling the RPC.** It calls the RPC directly and relies on the RPC's atomic `status = 'pending'` guard. If the completion is already actioned, the RPC raises "not pending" and POST maps that exception to the "already actioned" page. This is correct: the RPC check is atomic and eliminates the TOCTOU race that a pre-check would introduce.
 
 ---
 
 ## Durable Audit Log
 
-Every successful POST (action executed) inserts one row into `email_action_log`. This provides a permanent record independent of function logs.
+`email_action_log` is the source of truth for email-based actions. Function logs are secondary and supplementary. An operator investigating an email-triggered approve or reject must consult this table first.
 
 ### Schema (new migration)
 
@@ -164,64 +186,55 @@ CREATE TABLE email_action_log (
   actioned_at   timestamptz NOT NULL DEFAULT now()
 );
 
--- Admins can read their own rows; service role handles inserts
 ALTER TABLE email_action_log ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "admins read own rows"
   ON email_action_log FOR SELECT
   USING (admin_id = auth.uid());
 ```
 
-### When the row is inserted
+`admin_id` is populated from the `adminId` field in the HMAC-signed token. It records the **intended recipient** of the email — not a verified claim about who physically clicked. This distinction must be preserved in any reporting or audit UI built on this table.
 
-The audit row is inserted **after** the RPC succeeds and **before** the result page is returned. If the RPC fails (any reason), no audit row is written.
+### Write timing
 
-### Recovering operator identity
+The audit row is inserted after the RPC succeeds and before the result page is returned. If the RPC fails for any reason, no audit row is written.
 
-`admin_id` is populated from the `adminId` field in the HMAC-signed token. Since the token was minted per-admin in `notify-admin-completion`, `admin_id` identifies which admin's email was used to trigger the action — not which human was physically at the keyboard, but which account received the link.
-
-If `admin_id` is needed in the context where `auth.uid()` is expected (e.g., `reviewed_by` in `chore_completions`), the existing RPC will record `NULL` there because the service-role client has no auth context. The `email_action_log` table is the authoritative identity source for email-channel actions.
-
-### Console log (belt-and-suspenders)
-
-In addition to the DB row, the POST handler logs before calling the RPC:
-
-```
-[EMAIL-ACTION] completionId=<uuid> action=approve|reject adminId=<uuid>
-```
-
-This allows operators to correlate Edge Function logs with `email_action_log` rows if needed.
+Audit log insert failure is non-fatal. The state change has already been committed by the RPC and cannot be undone. In this case: log the insert failure with `[INFRA]`, then return the success page. The `[EMAIL-ACTION]` log line written before the RPC call provides a fallback record.
 
 ---
 
 ## Error Classification
 
-Errors fall into two categories with different handling.
+### Business-rule errors (expected, no operator action needed)
 
-### Business-rule errors (expected)
-
-| Error | User page | Log |
+| Error | User sees | Operator log |
 |-------|-----------|-----|
-| Token missing from query string | 400 + "הקישור שגוי" text | None |
-| Token malformed, HMAC invalid, or expired | "הקישור אינו תקף" page | None |
-| Completion not found or already actioned | "הגשה זו כבר טופלה" page | None |
+| Token missing from query string | 400, plain text | None |
+| Token malformed / HMAC invalid / expired | Generic terminal page | None |
+| Completion not found or already actioned | "already actioned" terminal page | None |
 
-No stack traces or internal details reach the user for these cases.
+### Infrastructure errors (unexpected, operator should investigate)
 
-### Infrastructure errors (unexpected)
-
-| Error | User page | Log |
+| Error | User sees | Operator log |
 |-------|-----------|-----|
-| `WEBHOOK_SECRET` or `SUPABASE_SERVICE_ROLE_KEY` missing | "שגיאה זמנית" page | `[INFRA] missing env: <name>` |
-| Supabase client creation throws | "שגיאה זמנית" page | `[INFRA] client creation failed: <error>` |
-| DB status check (GET) fails | "שגיאה זמנית" page | `[INFRA] status check failed: <error>` |
-| RPC returns unexpected error | "שגיאה זמנית" page | `[INFRA] rpc failed completionId=<uuid> action=<action>: <error>` |
-| Audit log insert fails | "✅/❌" success page (action succeeded) | `[INFRA] audit insert failed completionId=<uuid>: <error>` |
+| Env var missing (`WEBHOOK_SECRET`, `SUPABASE_SERVICE_ROLE_KEY`) | Generic terminal page | `[INFRA] missing env: <name>` |
+| Supabase client creation throws | Generic terminal page | `[INFRA] client creation failed: <error>` |
+| DB status check fails (GET) | Generic terminal page | `[INFRA] status check failed: <error>` |
+| RPC returns unexpected error | Generic terminal page | `[INFRA] rpc failed completionId=<uuid> action=<action>: <error>` |
+| Audit log insert fails | Success page (action committed) | `[INFRA] audit insert failed completionId=<uuid>: <error>` |
 
-The user-facing "שגיאה זמנית" page includes: "אירעה שגיאה. אנא נסה שוב מאוחר יותר או פתח את האפליקציה."
+**Service client creation is a distinct error case.** It is wrapped in a try/catch separate from the RPC call. Failure returns the generic terminal page immediately without attempting any DB access.
 
-Audit log insert failure is non-fatal — the action already succeeded and cannot be undone. Log the failure and return success.
+### Terminal page policy
 
-**Service client creation is a distinct error case.** Creating the Supabase client is wrapped in a try/catch. Failure returns "שגיאה זמנית" immediately without attempting any RPC or DB call.
+All non-success terminal pages (token invalid, infra error) show the same generic message to the user:
+
+> ⚠️ לא ניתן לבצע את הפעולה. אנא פתח את האפליקציה.
+
+Users cannot determine from the page whether the failure was caused by an invalid token, an expired token, or an infrastructure problem. The cause is recorded in operator logs only.
+
+The "already actioned" page is the one exception — it is a distinct business outcome and intentionally visible:
+
+> ℹ️ הגשה זו כבר טופלה.
 
 ---
 
@@ -229,28 +242,28 @@ Audit log insert failure is non-fatal — the action already succeeded and canno
 
 All HTML responses use `Content-Type: text/html; charset=utf-8`, `dir="rtl"`, status 200 (except 400 for missing token).
 
-### GET requests
+### GET
 
-| Condition | Response |
-|-----------|----------|
-| `token` param missing | 400, plain text "missing token" |
-| Token malformed / HMAC invalid / expired | Terminal: "הקישור אינו תקף או פג תוקפו. אנא פתח את האפליקציה לאישור ידני." |
-| DB status check fails (infra error) | Terminal: "שגיאה זמנית. אנא נסה שוב מאוחר יותר." |
-| Completion already actioned | Terminal: "ℹ️ הגשה זו כבר טופלה." |
-| Token valid, completion pending, action=approve | Confirmation page: "אתה עומד לאשר את ההגשה. לחץ לאישור." + [אשר] button |
-| Token valid, completion pending, action=reject | Confirmation page: "אתה עומד לדחות את ההגשה. לחץ לדחייה." + [דחה] button |
+| Condition | User response |
+|-----------|--------------|
+| `token` param missing | 400, plain text |
+| Token invalid / expired / infra failure | Generic terminal: "⚠️ לא ניתן לבצע את הפעולה. אנא פתח את האפליקציה." |
+| Completion already actioned | "ℹ️ הגשה זו כבר טופלה." |
+| Token valid, completion pending, action=approve | Confirmation: "אתה עומד לאשר את ההגשה. לחץ לאישור." + [אשר] |
+| Token valid, completion pending, action=reject | Confirmation: "אתה עומד לדחות את ההגשה. לחץ לדחייה." + [דחה] |
 
-### POST requests
+### POST
 
-| Condition | Response |
-|-----------|----------|
-| `token` param missing | 400, plain text "missing token" |
-| Token malformed / HMAC invalid / expired | Terminal: "הקישור אינו תקף או פג תוקפו. אנא פתח את האפליקציה לאישור ידני." |
-| Service client creation fails (infra error) | Terminal: "שגיאה זמנית. אנא נסה שוב מאוחר יותר." |
-| RPC throws "not pending" | Terminal: "ℹ️ הגשה זו כבר טופלה." |
-| RPC throws unknown error | Terminal: "שגיאה זמנית. אנא נסה שוב מאוחר יותר." |
-| action=approve, RPC succeeds | Terminal: "✅ ההגשה אושרה בהצלחה. השחקן יקבל את המטבעות." |
-| action=reject, RPC succeeds | Terminal: "❌ ההגשה נדחתה." |
+| Condition | User response |
+|-----------|--------------|
+| `token` param missing | 400, plain text |
+| Token invalid / expired / infra failure | Generic terminal: "⚠️ לא ניתן לבצע את הפעולה. אנא פתח את האפליקציה." |
+| RPC throws "not pending" | "ℹ️ הגשה זו כבר טופלה." |
+| RPC throws unknown error | Generic terminal: "⚠️ לא ניתן לבצע את הפעולה. אנא פתח את האפליקציה." |
+| action=approve, RPC succeeds | "✅ ההגשה אושרה בהצלחה. השחקן יקבל את המטבעות." |
+| action=reject, RPC succeeds | "❌ ההגשה נדחתה." |
+
+**"Already actioned" contract**: both GET (via DB status check) and POST (via RPC exception mapping) return the identical "הגשה זו כבר טופלה" terminal page, with no indication of which step detected the condition.
 
 ---
 
@@ -258,15 +271,25 @@ All HTML responses use `Content-Type: text/html; charset=utf-8`, `dir="rtl"`, st
 
 The same action labels and phrasing appear in the email, confirmation page, and result page.
 
-| Stage | Approve label | Reject label |
-|-------|--------------|-------------|
+| Stage | Approve | Reject |
+|-------|---------|--------|
 | Email button | ✅ אשר | ❌ דחה |
-| Confirmation page heading | אתה עומד לאשר את ההגשה | אתה עומד לדחות את ההגשה |
-| Confirmation page button | אשר | דחה |
+| Confirmation heading | אתה עומד לאשר את ההגשה | אתה עומד לדחות את ההגשה |
+| Confirmation button | אשר | דחה |
 | Result page | ✅ ההגשה אושרה בהצלחה. השחקן יקבל את המטבעות. | ❌ ההגשה נדחתה. |
-| Already actioned (any step) | ℹ️ הגשה זו כבר טופלה. | ℹ️ הגשה זו כבר טופלה. |
-| Token invalid (any step) | ⚠️ הקישור אינו תקף או פג תוקפו. אנא פתח את האפליקציה לאישור ידני. | same |
-| Infrastructure error (any step) | ⚠️ שגיאה זמנית. אנא נסה שוב מאוחר יותר. | same |
+| Already actioned (GET or POST) | ℹ️ הגשה זו כבר טופלה. | ℹ️ הגשה זו כבר טופלה. |
+| Any failure (GET or POST) | ⚠️ לא ניתן לבצע את הפעולה. אנא פתח את האפליקציה. | same |
+
+---
+
+## Token Replay Policy
+
+Tokens are not invalidated on use. A token remains cryptographically valid (correct HMAC, unexpired) until its 7-day TTL elapses, but **it must not and cannot cause a second state change once the completion is no longer pending**:
+
+- A second POST with a valid token hits the RPC, which atomically checks `status = 'pending'` and raises "not pending". The handler maps this to the "already actioned" page. No audit row is inserted.
+- A GET after the action has been taken reads `status ≠ 'pending'` and returns the "already actioned" page without rendering the confirmation form.
+
+Allowing replay-to-terminal-page is intentional. It handles double-click, email client retries, and email forwarding gracefully without requiring a token store or revocation mechanism.
 
 ---
 
@@ -279,7 +302,9 @@ Photos are compressed by the player's app before upload (`compressPhoto` in `pho
 - Max file size: ~200 KB
 - Max dimensions: 1280 × 1280 px
 
-These constraints apply to what is stored. The email displays the photo within the above limits.
+### Signed URL expiry
+
+The photo signed URL and the action tokens share the same 7-day TTL. Both are generated at the same moment in `notify-admin-completion`. When the token expires and no action is possible, the photo URL also expires. An admin opening an old email after 7 days will find both the image and the action buttons non-functional.
 
 ### Email display
 
@@ -291,18 +316,15 @@ These constraints apply to what is stored. The email displays the photo within t
 <p style="font-size:12px;color:#6b7280;">תמונת הוכחה לביצוע המשימה</p>
 ```
 
-- `alt` text is always present so the email makes sense if the image does not render
-- The caption below the image ("תמונת הוכחה לביצוע המשימה") is plain text — visible even when images are blocked
-- The signed URL is valid for 7 days, matching the token expiry; after 7 days the image will not load in older emails, but the token will also be expired and no action is possible
-- If `photo_url` is null (player submitted without photo), the `<img>` and caption are omitted entirely; the email still makes sense without them
+- The `alt` attribute is always present; the email makes sense if the image does not render.
+- The plain-text caption ("תמונת הוכחה לביצוע המשימה") appears below the image and is visible even when images are blocked by the email client.
+- If `photo_url` is null (no photo submitted), the `<img>` block and caption are omitted entirely; the rest of the email remains coherent without them.
 
 ---
 
 ## Changes to `notify-admin-completion`
 
 ### Payload changes
-
-Extract additional fields from `payload.record`:
 
 ```typescript
 const record = payload.record as {
@@ -317,7 +339,7 @@ Validate that `id` is a non-empty string; `photo_url` may be null.
 
 ### Per-admin token generation
 
-Generate two tokens per admin (approve + reject), including the admin's profile ID:
+Two tokens are generated per admin (approve + reject), each embedding the admin's profile ID:
 
 ```typescript
 async function generateToken(
@@ -338,17 +360,15 @@ async function generateToken(
 }
 ```
 
-For each admin, generate `approveToken` and `rejectToken` individually.
-
 ### Photo signed URL
 
 ```typescript
 const { data: signedData } = await supabase.storage
   .from('completion-photos')
-  .createSignedUrl(record.photo_url, 7 * 24 * 60 * 60)
+  .createSignedUrl(record.photo_url, 7 * 24 * 60 * 60) // same TTL as tokens
 ```
 
-Use `signedData?.signedUrl` in the template. If null, omit the image block.
+Use `signedData?.signedUrl`. If null, omit the image block.
 
 ### Updated email template
 
@@ -356,8 +376,8 @@ Use `signedData?.signedUrl` in the template. If null, omit the image block.
 [שם השחקן] השלים/ה את המשימה ״[שם המשימה]״ ומחכה לאישורך.
 ערך המשימה: [X] מטבעות
 
-[תמונת הוכחה — <img alt="תמונת הוכחה שצולמה על ידי השחקן">, max-width 400px]
-[כיתוב: "תמונת הוכחה לביצוע המשימה" — always shown as plain text]
+[<img alt="תמונת הוכחה שצולמה על ידי השחקן" width="400" max-width:100%>]
+[כיתוב: "תמונת הוכחה לביצוע המשימה" — plain text, always shown]
 
 [✅ אשר]   [❌ דחה]
 ```
@@ -367,7 +387,7 @@ Both buttons are `<a>` links:
 https://<ref>.supabase.co/functions/v1/handle-completion-action?token=<per-admin-token>
 ```
 
-The CTA link to the app URL is removed. The email is self-contained; all actions complete on the hosted confirmation page.
+The old CTA link to the app URL is removed. All actions complete on the hosted confirmation page without requiring a web-app login.
 
 ---
 
@@ -375,43 +395,7 @@ The CTA link to the app URL is removed. The email is self-contained; all actions
 
 **File**: `supabase/functions/handle-completion-action/index.ts`
 
-**Deploy**: `--no-verify-jwt` (no Supabase JWT required — token is the auth)
-
-### GET handler
-
-```
-1. Read `token` from query string → 400 "missing token" if absent
-2. Validate token (signature + expiry) → terminal "invalid/expired" page if invalid
-3. Extract { completionId, action, adminId } from payload
-4. Create Supabase service-role client
-   → on failure: log [INFRA], return "שגיאה זמנית" page
-5. Read completion.status from DB
-   → on DB error: log [INFRA], return "שגיאה זמנית" page
-   → if status ≠ 'pending': return "already actioned" page
-6. Return confirmation HTML page with:
-   - Hebrew description of the pending action
-   - <form method="POST" action="?token=<token>"> 
-   - One submit button (label from Message Consistency table)
-```
-
-### POST handler
-
-```
-1. Read `token` from query string → 400 "missing token" if absent
-2. Validate token (signature + expiry) → terminal "invalid/expired" page if invalid
-3. Extract { completionId, action, adminId } from payload
-4. Log: [EMAIL-ACTION] completionId=<uuid> action=<action> adminId=<uuid>
-5. Create Supabase service-role client
-   → on failure: log [INFRA], return "שגיאה זמנית" page
-6. Call RPC:
-   - approve: supabase.rpc('approve_completion', { completion_id: completionId })
-   - reject:  supabase.rpc('reject_completion', { completion_id: completionId, reason: 'נדחה על ידי המנהל' })
-   → on "not pending" error: return "already actioned" page (no audit insert)
-   → on other RPC error: log [INFRA], return "שגיאה זמנית" page (no audit insert)
-7. Insert into email_action_log: { completion_id, admin_id, action, source: 'email' }
-   → on insert error: log [INFRA] audit insert failed — return success page anyway
-8. Return result page (see Message Consistency table)
-```
+**Deploy**: `--no-verify-jwt` (the HMAC token is the auth; no Supabase JWT required)
 
 ### Token validation
 
@@ -433,8 +417,9 @@ async function validateToken(
       'raw', enc.encode(secret),
       { name: 'HMAC', hash: 'SHA-256' }, false, ['verify']
     )
-    const sigBytes = fromB64url(sigB64url)
-    const valid = await crypto.subtle.verify('HMAC', key, sigBytes, enc.encode(payload))
+    const valid = await crypto.subtle.verify(
+      'HMAC', key, fromB64url(sigB64url), enc.encode(payload)
+    )
     if (!valid) return null
     return { completionId, action, adminId }
   } catch {
@@ -443,30 +428,18 @@ async function validateToken(
 }
 ```
 
+Validation fails silently on any exception. The caller maps `null` to the generic terminal page.
+
 ---
 
 ## State Transition Guarantee
 
-The Edge Function **never directly updates `chore_completions`**. All state transitions go exclusively through:
+The Edge Function **never directly updates `chore_completions`**. All state transitions go exclusively through the RPC functions:
 
-- `approve_completion(completion_id)` → sole path to `status = 'approved'`
-- `reject_completion(completion_id, reason)` → sole path to `status = 'rejected'`
+- `approve_completion(completion_id)` — sole path to `status = 'approved'`
+- `reject_completion(completion_id, reason)` — sole path to `status = 'rejected'`
 
-This ensures coin crediting, in-app notifications, and `reviewed_by` audit fields run consistently regardless of whether the action originated from the web app or an email button.
-
-`reviewed_by` will be `NULL` for email-based actions (service-role client has no `auth.uid()`). The `email_action_log.admin_id` field is the identity record for email-channel actions.
-
----
-
-## Token Reuse Policy
-
-Tokens are not invalidated on use. After a successful action:
-
-- **POST** returns "already actioned" without inserting a second audit row (RPC's `status = 'pending'` check prevents it).
-- **GET** returns "already actioned" because the DB status check shows a non-pending completion.
-- Tokens remain valid as HMAC signatures until their 7-day expiry, but they can only produce terminal pages once the completion is no longer pending.
-
-This behavior is intentional — it handles double-click, email client retry, and email forwarding gracefully without a token store.
+This ensures coin crediting, in-app notifications, and `reviewed_by` audit fields run consistently regardless of whether the action came from the web app or the email button.
 
 ---
 
@@ -475,13 +448,14 @@ This behavior is intentional — it handles double-click, email client retry, an
 | File | Change |
 |------|--------|
 | `supabase/migrations/<timestamp>_email_action_log.sql` | New table + RLS policy |
-| `supabase/functions/notify-admin-completion/index.ts` | Extract `id` + `photo_url`; generate per-admin HMAC tokens including `adminId`; add photo block with alt/caption; update email template |
-| `supabase/functions/handle-completion-action/index.ts` | New function — two-step GET/POST, token validation, status pre-check on GET, audit log insert on POST, classified error handling |
+| `supabase/functions/notify-admin-completion/index.ts` | Extract `id` + `photo_url`; generate per-admin HMAC tokens with `adminId`; photo block with alt/caption; same 7-day TTL for photo URL and tokens |
+| `supabase/functions/handle-completion-action/index.ts` | New function — GET read-only confirmation, POST-only RPC + audit insert, classified error handling, indistinguishable terminal error pages |
 
 ## Out of Scope
 
 - Custom reject reason from email (fixed reason used)
 - Admin opt-out from email action buttons
-- Verified admin identity (token identifies the intended admin; physical actor is not verified)
+- Verified physical identity of the actor (only intended recipient is recorded)
 - Player notification email for rejection (in-app notification already handles it)
 - Token revocation before expiry (RPC status check and 7-day TTL are sufficient)
+- Mitigating email forwarding (accepted risk; this is the intended free-tier auth model)
