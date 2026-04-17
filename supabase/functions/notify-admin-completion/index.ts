@@ -10,8 +10,9 @@ function escapeHtml(str: string): string {
 }
 
 function toB64url(bytes: Uint8Array): string {
-  return btoa(String.fromCharCode(...bytes))
-    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '')
+  let binary = ''
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i])
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '')
 }
 
 async function generateToken(
@@ -69,13 +70,23 @@ function buildAdminEmail(
 </html>`
 }
 
+function timingSafeEqual(a: string, b: string): boolean {
+  const enc = new TextEncoder()
+  const aBytes = enc.encode(a)
+  const bBytes = enc.encode(b)
+  if (aBytes.length !== bBytes.length) return false
+  let diff = 0
+  for (let i = 0; i < aBytes.length; i++) diff |= aBytes[i] ^ bBytes[i]
+  return diff === 0
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: { 'Access-Control-Allow-Origin': '*' } })
   }
 
-  const webhookSecret = req.headers.get('x-webhook-secret')
-  if (webhookSecret !== Deno.env.get('WEBHOOK_SECRET')) {
+  const webhookSecret = req.headers.get('x-webhook-secret') ?? ''
+  if (!timingSafeEqual(webhookSecret, Deno.env.get('WEBHOOK_SECRET') ?? '')) {
     return new Response('Unauthorized', { status: 401 })
   }
 
@@ -159,44 +170,48 @@ Deno.serve(async (req) => {
 
   await Promise.all(
     (admins ?? []).map(async (admin) => {
-      const { data: authData, error: authError } = await supabase.auth.admin.getUserById(admin.id)
-      if (authError || !authData?.user?.email) return
-      const adminEmail = authData.user.email
+      try {
+        const { data: authData, error: authError } = await supabase.auth.admin.getUserById(admin.id)
+        if (authError || !authData?.user?.email) return
+        const adminEmail = authData.user.email
 
-      // Each admin gets unique tokens embedding their profile ID
-      const [approveToken, rejectToken] = await Promise.all([
-        generateToken(completionId, 'approve', admin.id, webhookSecretValue),
-        generateToken(completionId, 'reject', admin.id, webhookSecretValue),
-      ])
-      const approveUrl = `${actionBaseUrl}?token=${approveToken}`
-      const rejectUrl = `${actionBaseUrl}?token=${rejectToken}`
+        // Each admin gets unique tokens embedding their profile ID
+        const [approveToken, rejectToken] = await Promise.all([
+          generateToken(completionId, 'approve', admin.id, webhookSecretValue),
+          generateToken(completionId, 'reject', admin.id, webhookSecretValue),
+        ])
+        const approveUrl = `${actionBaseUrl}?token=${approveToken}`
+        const rejectUrl = `${actionBaseUrl}?token=${rejectToken}`
 
-      const res = await fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${resendApiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          from: fromEmail,
-          to: adminEmail,
-          subject: `📋 ${profile.name} השלים/ה את המשימה ״${chore?.title ?? 'משימה'}״`,
-          html: buildAdminEmail(
-            profile.name,
-            chore?.title ?? 'משימה',
-            chore?.coin_value ?? 0,
-            approveUrl,
-            rejectUrl,
-            photoSignedUrl
-          ),
-        }),
-      })
+        const res = await fetch('https://api.resend.com/emails', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${resendApiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            from: fromEmail,
+            to: adminEmail,
+            subject: `📋 ${profile.name} השלים/ה את המשימה ״${chore?.title ?? 'משימה'}״`,
+            html: buildAdminEmail(
+              profile.name,
+              chore?.title ?? 'משימה',
+              chore?.coin_value ?? 0,
+              approveUrl,
+              rejectUrl,
+              photoSignedUrl
+            ),
+          }),
+        })
 
-      if (!res.ok) {
-        const body = await res.text()
-        console.error(`Resend error for ${adminEmail}: ${res.status} ${body}`)
-      } else {
-        console.log(`Admin notification sent to ${adminEmail}`)
+        if (!res.ok) {
+          const body = await res.text()
+          console.error(`Resend error for ${adminEmail}: ${res.status} ${body}`)
+        } else {
+          console.log(`Admin notification sent to ${adminEmail}`)
+        }
+      } catch (err) {
+        console.error(`Failed to notify admin ${admin.id}:`, err)
       }
     })
   )
