@@ -33,11 +33,11 @@ notify-admin-completion sends email to each admin
 
         POST ?token=<signed-token>                   ← only step that mutates state
               │
-              ├─ Token invalid / expired / infra ────→ Terminal: generic failure page
-              ├─ RPC throws "not pending" ───────────→ Terminal: "הגשה זו כבר טופלה"
-              ├─ RPC throws unknown error ───────────→ Terminal: generic failure page
-              ├─ Approve → approve_completion() ─────→ Insert audit row → "✅ אושר"
-              └─ Reject  → reject_completion()  ─────→ Insert audit row → "❌ נדחה"
+              ├─ Token invalid / expired / infra ────────→ Terminal: generic failure page
+              ├─ Wrapper RPC throws "not pending" ────────→ Terminal: "הגשה זו כבר טופלה"
+              ├─ Wrapper RPC throws unknown error ────────→ Terminal: generic failure page
+              ├─ email_approve_completion() ──────────────→ (atomic: state + audit) → "✅ אושר"
+              └─ email_reject_completion()  ──────────────→ (atomic: state + audit) → "❌ נדחה"
 ```
 
 **GET never calls an RPC, never writes to `email_action_log`, and never changes any DB state.**
@@ -165,20 +165,24 @@ The confirmation form submits a POST to the same URL with the token in the query
 ```
 1. Parse and validate token (signature + expiry)
    → failure: return generic terminal page
-2. Log: [EMAIL-ACTION] completionId=<uuid> action=<action> adminId=<uuid>
+2. Log: [EMAIL-ACTION] completionId=<uuid> action=<action> intended_recipient_id=<uuid>
 3. Create Supabase service-role client
-   → failure: log [INFRA], return generic terminal page
-4. Call RPC directly — no pre-check of completion status:
-   - approve: supabase.rpc('approve_completion', { completion_id: completionId })
-   - reject:  supabase.rpc('reject_completion', { completion_id: completionId, reason: 'נדחה על ידי המנהל' })
-   → RPC throws "not pending": return "already actioned" terminal page (no audit insert)
-   → RPC throws anything else: log [INFRA], return generic terminal page (no audit insert)
-5. Insert into email_action_log: { completion_id, admin_id, action, source: 'email' }
-   → insert error: log [INFRA] audit insert failed — return success page anyway (action already committed)
-6. Return success result page ("✅ ההגשה אושרה" or "❌ ההגשה נדחתה")
+   → failure: log [INFRA] completionId=<uuid> intended_recipient_id=<uuid> client creation failed: <error>
+              return generic terminal page
+4. Call atomic wrapper RPC — no pre-check of completion status:
+   - approve: supabase.rpc('email_approve_completion', { p_completion_id: completionId, p_admin_id: adminId })
+   - reject:  supabase.rpc('email_reject_completion', { p_completion_id: completionId, p_admin_id: adminId,
+                             p_reason: 'נדחה על ידי המנהל' })
+   The wrapper RPC calls the underlying approve/reject RPC and inserts the audit row in the same
+   Postgres transaction. Both commit or both roll back together.
+   → throws "not pending": return "already actioned" terminal page
+   → throws anything else: log [INFRA] completionId=<uuid> intended_recipient_id=<uuid>
+                                       action=<action> rpc failed: <error>
+                            return generic terminal page
+5. Return success result page ("✅ ההגשה אושרה" or "❌ ההגשה נדחתה")
 ```
 
-**POST does not pre-check completion status before calling the RPC.** It calls the RPC directly and relies on the RPC's atomic `status = 'pending'` guard. If the completion is already actioned, the RPC raises "not pending" and POST maps that exception to the "already actioned" page. This is correct: the RPC check is atomic and eliminates the TOCTOU race that a pre-check would introduce.
+**POST does not pre-check completion status before calling the RPC.** It calls the wrapper directly and relies on the underlying RPC's atomic `status = 'pending'` guard. If the completion is already actioned, the inner RPC raises "not pending" — which propagates through the wrapper — and POST maps that exception to the "already actioned" page. This eliminates the TOCTOU race that a pre-check would introduce.
 
 ---
 
@@ -189,6 +193,7 @@ The confirmation form submits a POST to the same URL with the token in the query
 ### Schema (new migration)
 
 ```sql
+-- Audit table
 CREATE TABLE email_action_log (
   id            uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
   completion_id uuid        NOT NULL REFERENCES chore_completions(id),
@@ -198,21 +203,47 @@ CREATE TABLE email_action_log (
   actioned_at   timestamptz NOT NULL DEFAULT now()
 );
 
+-- Index for fast audit lookups by completion
+CREATE INDEX email_action_log_completion_id_idx ON email_action_log (completion_id);
+
 ALTER TABLE email_action_log ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "admins read own rows"
   ON email_action_log FOR SELECT
   USING (admin_id = auth.uid());
+
+-- Atomic wrapper: approve + audit in one transaction
+CREATE OR REPLACE FUNCTION email_approve_completion(
+  p_completion_id uuid,
+  p_admin_id      uuid
+) RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+  PERFORM approve_completion(p_completion_id);
+  INSERT INTO email_action_log (completion_id, admin_id, action, source)
+  VALUES (p_completion_id, p_admin_id, 'approve', 'email');
+END;
+$$;
+
+-- Atomic wrapper: reject + audit in one transaction
+CREATE OR REPLACE FUNCTION email_reject_completion(
+  p_completion_id uuid,
+  p_admin_id      uuid,
+  p_reason        text
+) RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+  PERFORM reject_completion(p_completion_id, p_reason);
+  INSERT INTO email_action_log (completion_id, admin_id, action, source)
+  VALUES (p_completion_id, p_admin_id, 'reject', 'email');
+END;
+$$;
 ```
 
-`admin_id` is populated from the `adminId` field in the HMAC-signed token. It records the **intended recipient** of the email — not a verified claim about who physically clicked. This distinction must be preserved in any reporting or audit UI built on this table.
+`admin_id` is populated from the `adminId` field in the HMAC-signed token. It records the **intended recipient** of the email — not a verified claim about who physically clicked. Any UI or report displaying `admin_id` from this table must label it **"Intended Recipient"** to accurately reflect the security model's accepted risks regarding email forwarding.
 
-### Write timing
+### Atomicity
 
-The audit row is inserted after the RPC succeeds and before the result page is returned. If the RPC fails for any reason, no audit row is written.
+The `email_approve_completion` and `email_reject_completion` wrapper functions execute their state change and their audit insert inside the **same Postgres transaction**. Both commit or both roll back together. This eliminates any window between a committed state change and a missing audit row.
 
-Audit log insert failure is non-fatal. The state change has already been committed by the RPC and cannot be undone. In this case: log the insert failure with `[INFRA]`, then return the success page. The `[EMAIL-ACTION]` log line written before the RPC call is the fallback record and is confirmed to be sufficient for manual recovery.
-
-**Atomicity**: the RPC call and the `email_action_log` insert are two separate operations and are not wrapped in a single Postgres transaction. This is an accepted tradeoff — the RPC runs inside its own Postgres transaction and commits before the Edge Function inserts the audit row. The `[EMAIL-ACTION]` pre-log entry is the manual fallback if the audit insert fails. This is considered sufficient because the action cannot be reversed after the RPC commits, and the log entry provides the data needed to reconstruct a missing audit row.
+The `[EMAIL-ACTION]` console log line is written by the Edge Function before calling the wrapper, serving as a belt-and-suspenders record for operator correlation — it is no longer the primary audit source. The `email_action_log` table is the source of truth.
 
 ---
 
@@ -230,13 +261,17 @@ Audit log insert failure is non-fatal. The state change has already been committ
 
 | Error | User sees | Operator log |
 |-------|-----------|-----|
-| Env var missing (`WEBHOOK_SECRET`, `SUPABASE_SERVICE_ROLE_KEY`) | Generic terminal page | `[INFRA] missing env: <name>` (completionId/adminId unavailable — fires before token validation) |
-| Supabase client creation throws | Generic terminal page | `[INFRA] completionId=<uuid> adminId=<uuid> client creation failed: <error>` |
-| DB status check fails (GET) | Generic terminal page | `[INFRA] completionId=<uuid> adminId=<uuid> status check failed: <error>` |
-| RPC returns unexpected error | Generic terminal page | `[INFRA] completionId=<uuid> adminId=<uuid> action=<action> rpc failed: <error>` |
-| Audit log insert fails | Success page (action committed) | `[INFRA] completionId=<uuid> adminId=<uuid> action=<action> audit insert failed: <error>` |
+| Env var missing (`WEBHOOK_SECRET`, `SUPABASE_SERVICE_ROLE_KEY`) | Generic terminal page | `[INFRA] missing env: <name>` (context unavailable — fires before token validation) |
+| Supabase client creation throws | Generic terminal page | `[INFRA] completionId=<uuid> intended_recipient_id=<uuid> client creation failed: <error>` |
+| DB status check fails (GET) | Generic terminal page | `[INFRA] completionId=<uuid> intended_recipient_id=<uuid> status check failed: <error>` |
+| Wrapper RPC returns unexpected error | Generic terminal page | `[INFRA] completionId=<uuid> intended_recipient_id=<uuid> action=<action> rpc failed: <error>` |
 
-Every `[INFRA]` log entry must include `completionId` and `adminId` when they are available (i.e., after successful token validation). The env-missing case is the only exception — it fires at startup before any token is parsed, so those fields are genuinely unknown.
+Every `[INFRA]` log entry must include `completionId` and `intended_recipient_id` when they are available (i.e., after successful token validation). The key name `intended_recipient_id` is used instead of `adminId` so that the log entry self-documents the security model: the value identifies who received the email, not who physically acted. The env-missing case is the only exception — it fires at startup before any token is parsed, so those fields are genuinely unknown.
+
+The `[EMAIL-ACTION]` pre-execution log line follows the same convention:
+```
+[EMAIL-ACTION] completionId=<uuid> action=approve|reject intended_recipient_id=<uuid>
+```
 
 **Service client creation is a distinct error case.** It is wrapped in a try/catch separate from the RPC call. Failure returns the generic terminal page immediately without attempting any DB access.
 
@@ -335,6 +370,8 @@ The photo signed URL and the action tokens share the same 7-day TTL. Both are ge
 <p style="font-size:12px;color:#6b7280;margin:0 0 16px 0;">תמונת הוכחה לביצוע המשימה</p>
 ```
 
+**All styles in the email HTML must be applied as inline CSS on the element itself** — no `<style>` blocks, no `<link>` stylesheets. Most email clients (including Gmail, Outlook, and Apple Mail) strip or ignore non-inline styles. Any style that is not on the element's `style` attribute will be silently lost for a significant share of recipients.
+
 CSS notes for email client compatibility:
 - `display:block` — eliminates the phantom bottom gap that inline images produce in some clients
 - `border:0` — prevents Internet Explorer and old Outlook from adding a blue border when the image is inside an anchor
@@ -342,7 +379,7 @@ CSS notes for email client compatibility:
 - `text-decoration:none` — defensive rule in case the image is ever wrapped in a link
 - Both the HTML attribute `border="0"` and the CSS `border:0` are required because older Outlook versions ignore CSS
 
-Touch targets for email action buttons: the `<a>` anchor buttons for Approve and Reject must render at least 44 px tall. Achieve this with `padding: 14px 28px` on the anchor's inline style — do not use a fixed height, as some email clients strip it. A 44 × 44 px minimum follows Apple HIG and WCAG 2.5.5 guidelines for touch targets.
+Touch targets for email action buttons: the `<a>` anchor buttons for Approve and Reject must render at least 44 px tall. Achieve this with `padding: 14px 28px` applied as an inline `style` attribute on the anchor — do not use a fixed `height`, as some email clients strip it. A 44 × 44 px minimum follows Apple HIG and WCAG 2.5.5 guidelines for touch targets. All padding and sizing for these buttons must also be inline CSS — no external stylesheet or `<style>` block.
 
 - The `alt` attribute is always present; the email makes sense if the image does not render.
 - The plain-text caption ("תמונת הוכחה לביצוע המשימה") appears below the image and is visible even when images are blocked by the email client.
@@ -431,9 +468,10 @@ Every response from this function — confirmation page, result page, terminal p
 
 ```
 Cache-Control: no-store, max-age=0
+Vary: *
 ```
 
-This prevents browsers and intermediaries from caching any page. Without this, a browser may serve a stale "already actioned" or confirmation page from cache, causing the admin to see incorrect state or attempt to submit the form a second time against a cached copy.
+`Cache-Control: no-store` prevents browsers and intermediaries from caching any page; `max-age=0` reinforces this for proxies that ignore `no-store`. `Vary: *` marks the response as uncacheable by shared caches regardless of request headers, preventing CDN or proxy layers from ever serving a stale confirmation or result page. Without these headers a browser may replay a cached "already actioned" page or re-submit a cached confirmation form.
 
 ### Token validation
 
@@ -474,12 +512,12 @@ Validation fails silently on any exception. The caller maps `null` to the generi
 
 ## State Transition Guarantee
 
-The Edge Function **never directly updates `chore_completions`**. All state transitions go exclusively through the RPC functions:
+The Edge Function **never directly updates `chore_completions`**. For email-triggered actions it calls the atomic wrapper functions, which themselves delegate to the core RPCs:
 
-- `approve_completion(completion_id)` — sole path to `status = 'approved'`
-- `reject_completion(completion_id, reason)` — sole path to `status = 'rejected'`
+- `email_approve_completion(p_completion_id, p_admin_id)` → calls `approve_completion` + inserts audit row atomically
+- `email_reject_completion(p_completion_id, p_admin_id, p_reason)` → calls `reject_completion` + inserts audit row atomically
 
-This ensures coin crediting, in-app notifications, and `reviewed_by` audit fields run consistently regardless of whether the action came from the web app or the email button.
+The underlying `approve_completion` and `reject_completion` RPCs remain the sole paths to `status = 'approved'` and `status = 'rejected'`. This ensures coin crediting, in-app notifications, and `reviewed_by` audit fields run consistently regardless of whether the action came from the web app or the email button.
 
 ---
 
@@ -487,7 +525,7 @@ This ensures coin crediting, in-app notifications, and `reviewed_by` audit field
 
 | File | Change |
 |------|--------|
-| `supabase/migrations/<timestamp>_email_action_log.sql` | New table + RLS policy |
+| `supabase/migrations/<timestamp>_email_action_log.sql` | New table + RLS policy + index on `completion_id` + `email_approve_completion` and `email_reject_completion` wrapper functions |
 | `supabase/functions/notify-admin-completion/index.ts` | Extract `id` + `photo_url`; generate per-admin HMAC tokens with `adminId`; photo block with alt/caption; same 7-day TTL for photo URL and tokens |
 | `supabase/functions/handle-completion-action/index.ts` | New function — GET read-only confirmation, POST-only RPC + audit insert, classified error handling, indistinguishable terminal error pages |
 
