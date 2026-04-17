@@ -79,6 +79,14 @@ The `adminId` field embedded in the token identifies the **intended recipient** 
 
 ---
 
+## Secret Management
+
+`WEBHOOK_SECRET` must be stored as a Supabase Secret (Dashboard → Edge Functions → Manage secrets) and never committed to version control or stored in `.env` files in the repository.
+
+**Rotation impact**: rotating `WEBHOOK_SECRET` immediately invalidates every outstanding HMAC token, including all unexpired tokens currently in admin inboxes. Any admin who has not yet clicked their email link will find it broken after rotation. Rotation must therefore only be performed when the secret is known or suspected to be compromised — not as a routine operation. Coordinate with all admins before rotating so they know to expect broken links and can approve or reject pending completions via the web app instead.
+
+---
+
 ## Token Format
 
 **Encoding**: base64url per RFC 4648 §5 — URL-safe alphabet (`-` and `_` replace `+` and `/`), no padding. All string fields encoded as UTF-8.
@@ -140,6 +148,10 @@ The email buttons are `<a href="...?token=...">` links. Clicking opens a browser
    - Hebrew description of the action ("אתה עומד לאשר את ההגשה" / "אתה עומד לדחות את ההגשה")
    - <form method="POST" action="?token=<token>">
    - One submit button labelled "אשר" or "דחה"
+   - Inline JavaScript on the form's onsubmit: disable the button immediately on first click to
+     prevent duplicate POST submissions (e.g., onsubmit="this.querySelector('button[type=submit]').disabled=true")
+   - Button must meet a minimum touch target of 44 × 44 px (achieved via padding, not fixed size,
+     so the label remains readable on all screen sizes)
 ```
 
 **GET stops here. No RPC call. No audit write. No state change of any kind.**
@@ -198,7 +210,9 @@ CREATE POLICY "admins read own rows"
 
 The audit row is inserted after the RPC succeeds and before the result page is returned. If the RPC fails for any reason, no audit row is written.
 
-Audit log insert failure is non-fatal. The state change has already been committed by the RPC and cannot be undone. In this case: log the insert failure with `[INFRA]`, then return the success page. The `[EMAIL-ACTION]` log line written before the RPC call provides a fallback record.
+Audit log insert failure is non-fatal. The state change has already been committed by the RPC and cannot be undone. In this case: log the insert failure with `[INFRA]`, then return the success page. The `[EMAIL-ACTION]` log line written before the RPC call is the fallback record and is confirmed to be sufficient for manual recovery.
+
+**Atomicity**: the RPC call and the `email_action_log` insert are two separate operations and are not wrapped in a single Postgres transaction. This is an accepted tradeoff — the RPC runs inside its own Postgres transaction and commits before the Edge Function inserts the audit row. The `[EMAIL-ACTION]` pre-log entry is the manual fallback if the audit insert fails. This is considered sufficient because the action cannot be reversed after the RPC commits, and the log entry provides the data needed to reconstruct a missing audit row.
 
 ---
 
@@ -216,11 +230,13 @@ Audit log insert failure is non-fatal. The state change has already been committ
 
 | Error | User sees | Operator log |
 |-------|-----------|-----|
-| Env var missing (`WEBHOOK_SECRET`, `SUPABASE_SERVICE_ROLE_KEY`) | Generic terminal page | `[INFRA] missing env: <name>` |
-| Supabase client creation throws | Generic terminal page | `[INFRA] client creation failed: <error>` |
-| DB status check fails (GET) | Generic terminal page | `[INFRA] status check failed: <error>` |
-| RPC returns unexpected error | Generic terminal page | `[INFRA] rpc failed completionId=<uuid> action=<action>: <error>` |
-| Audit log insert fails | Success page (action committed) | `[INFRA] audit insert failed completionId=<uuid>: <error>` |
+| Env var missing (`WEBHOOK_SECRET`, `SUPABASE_SERVICE_ROLE_KEY`) | Generic terminal page | `[INFRA] missing env: <name>` (completionId/adminId unavailable — fires before token validation) |
+| Supabase client creation throws | Generic terminal page | `[INFRA] completionId=<uuid> adminId=<uuid> client creation failed: <error>` |
+| DB status check fails (GET) | Generic terminal page | `[INFRA] completionId=<uuid> adminId=<uuid> status check failed: <error>` |
+| RPC returns unexpected error | Generic terminal page | `[INFRA] completionId=<uuid> adminId=<uuid> action=<action> rpc failed: <error>` |
+| Audit log insert fails | Success page (action committed) | `[INFRA] completionId=<uuid> adminId=<uuid> action=<action> audit insert failed: <error>` |
+
+Every `[INFRA]` log entry must include `completionId` and `adminId` when they are available (i.e., after successful token validation). The env-missing case is the only exception — it fires at startup before any token is parsed, so those fields are genuinely unknown.
 
 **Service client creation is a distinct error case.** It is wrapped in a try/catch separate from the RPC call. Failure returns the generic terminal page immediately without attempting any DB access.
 
@@ -228,7 +244,9 @@ Audit log insert failure is non-fatal. The state change has already been committ
 
 All non-success terminal pages (token invalid, infra error) show the same generic message to the user:
 
-> ⚠️ לא ניתן לבצע את הפעולה. אנא פתח את האפליקציה.
+> ⚠️ לא ניתן לבצע את הפעולה. [פתח את האפליקציה]({APP_URL})
+
+The `{APP_URL}` placeholder is replaced at render time using the `APP_URL` environment variable. If `APP_URL` is not set, the link is omitted and the text reads "אנא פתח את האפליקציה" without a hyperlink. This gives the admin a path forward regardless of why the link failed.
 
 Users cannot determine from the page whether the failure was caused by an invalid token, an expired token, or an infrastructure problem. The cause is recorded in operator logs only.
 
@@ -312,9 +330,19 @@ The photo signed URL and the action tokens share the same 7-day TTL. Both are ge
 <img src="<signedUrl>"
      alt="תמונת הוכחה שצולמה על ידי השחקן"
      width="400"
-     style="max-width:100%;border-radius:8px;display:block;margin:16px 0;">
-<p style="font-size:12px;color:#6b7280;">תמונת הוכחה לביצוע המשימה</p>
+     border="0"
+     style="display:block;border:0;outline:none;text-decoration:none;max-width:100%;border-radius:8px;margin:16px 0;">
+<p style="font-size:12px;color:#6b7280;margin:0 0 16px 0;">תמונת הוכחה לביצוע המשימה</p>
 ```
+
+CSS notes for email client compatibility:
+- `display:block` — eliminates the phantom bottom gap that inline images produce in some clients
+- `border:0` — prevents Internet Explorer and old Outlook from adding a blue border when the image is inside an anchor
+- `outline:none` — suppresses focus outlines added by some mobile email clients
+- `text-decoration:none` — defensive rule in case the image is ever wrapped in a link
+- Both the HTML attribute `border="0"` and the CSS `border:0` are required because older Outlook versions ignore CSS
+
+Touch targets for email action buttons: the `<a>` anchor buttons for Approve and Reject must render at least 44 px tall. Achieve this with `padding: 14px 28px` on the anchor's inline style — do not use a fixed height, as some email clients strip it. A 44 × 44 px minimum follows Apple HIG and WCAG 2.5.5 guidelines for touch targets.
 
 - The `alt` attribute is always present; the email makes sense if the image does not render.
 - The plain-text caption ("תמונת הוכחה לביצוע המשימה") appears below the image and is visible even when images are blocked by the email client.
@@ -397,6 +425,16 @@ The old CTA link to the app URL is removed. All actions complete on the hosted c
 
 **Deploy**: `--no-verify-jwt` (the HMAC token is the auth; no Supabase JWT required)
 
+### Response headers
+
+Every response from this function — confirmation page, result page, terminal page, and 400 — must include:
+
+```
+Cache-Control: no-store, max-age=0
+```
+
+This prevents browsers and intermediaries from caching any page. Without this, a browser may serve a stale "already actioned" or confirmation page from cache, causing the admin to see incorrect state or attempt to submit the form a second time against a cached copy.
+
 ### Token validation
 
 ```typescript
@@ -429,6 +467,8 @@ async function validateToken(
 ```
 
 Validation fails silently on any exception. The caller maps `null` to the generic terminal page.
+
+**Constant-time comparison**: signature verification uses `crypto.subtle.verify`, which performs a constant-time byte comparison. Do not substitute a manual byte-by-byte or string equality check — those are vulnerable to timing attacks that allow an attacker to infer valid signature bytes by measuring response time differences.
 
 ---
 
