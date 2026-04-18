@@ -86,9 +86,7 @@ Deno.serve(async (req) => {
   }
 
   const webhookSecret = req.headers.get('x-webhook-secret') ?? ''
-  const envSecret = Deno.env.get('WEBHOOK_SECRET') ?? ''
-  console.log(`[DEBUG] header_len=${webhookSecret.length} env_len=${envSecret.length} match=${timingSafeEqual(webhookSecret, envSecret)}`)
-  if (!timingSafeEqual(webhookSecret, envSecret)) {
+  if (!timingSafeEqual(webhookSecret, Deno.env.get('WEBHOOK_SECRET') ?? '')) {
     return new Response('Unauthorized', { status: 401 })
   }
 
@@ -117,13 +115,14 @@ Deno.serve(async (req) => {
   const supabaseUrl = Deno.env.get('SUPABASE_URL')
   const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
   const webhookSecretValue = Deno.env.get('WEBHOOK_SECRET')
+  const appUrl = Deno.env.get('APP_URL')
 
-  if (!resendApiKey || !fromEmail || !supabaseUrl || !supabaseServiceKey || !webhookSecretValue) {
+  if (!resendApiKey || !fromEmail || !supabaseUrl || !supabaseServiceKey || !webhookSecretValue || !appUrl) {
     console.error('Missing required env vars')
     return new Response('Server misconfiguration', { status: 500 })
   }
 
-  const actionBaseUrl = `${supabaseUrl}/functions/v1/handle-completion-action`
+  const actionBaseUrl = `${appUrl}/email-action`
   const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
   const { data: profile, error: profileError } = await supabase
