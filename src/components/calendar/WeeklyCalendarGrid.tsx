@@ -41,7 +41,6 @@ interface AssignmentCardProps {
   assignment: AssignmentWithDetails
   color: string
   isOwn: boolean
-  onChangePin?: (assignment: AssignmentWithDetails) => void
   onUnpin?: (assignment: AssignmentWithDetails) => void
   onToggleReminder?: (assignment: AssignmentWithDetails) => void
 }
@@ -50,12 +49,15 @@ function AssignmentCard({
   assignment: a,
   color,
   isOwn,
-  onChangePin,
   onUnpin,
   onToggleReminder,
 }: AssignmentCardProps) {
   return (
-    <div className={`rounded border p-1.5 text-xs space-y-1 ${color}`}>
+    <div
+      className={`rounded border p-1.5 text-xs space-y-1 ${color} ${isOwn ? 'cursor-grab active:cursor-grabbing' : ''}`}
+      draggable={isOwn}
+      onDragStart={isOwn ? (e) => e.dataTransfer.setData('text/plain', a.id) : undefined}
+    >
       <div className="flex items-center gap-1">
         <Avatar className="h-5 w-5">
           <AvatarImage src={a.profiles.avatar_url ?? undefined} />
@@ -67,16 +69,6 @@ function AssignmentCard({
         <Badge variant="secondary" className="text-[10px] px-1 h-4">
           {STATUS_LABEL[a.status]}
         </Badge>
-        {isOwn && onChangePin && (
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-5 px-1 text-[10px]"
-            onClick={() => onChangePin(a)}
-          >
-            שנה זמן
-          </Button>
-        )}
         {isOwn && onUnpin && (
           <Button
             size="sm"
@@ -107,22 +99,22 @@ function AssignmentCard({
 interface WeeklyCalendarGridProps {
   assignments: AssignmentWithDetails[]
   currentUserId?: string
-  onChangePin?: (assignment: AssignmentWithDetails) => void
   onUnpin?: (assignment: AssignmentWithDetails) => void
   onToggleReminder?: (assignment: AssignmentWithDetails) => void
+  onDropOnCell?: (day: number, slot: CalendarSlot, assignmentId: string) => void
 }
 
 export default function WeeklyCalendarGrid({
   assignments,
   currentUserId,
-  onChangePin,
   onUnpin,
   onToggleReminder,
+  onDropOnCell,
 }: WeeklyCalendarGridProps) {
   const todayIndex = new Date().getDay()
   const [selectedDay, setSelectedDay] = useState(todayIndex)
+  const [dragOverCell, setDragOverCell] = useState<string | null>(null)
 
-  // Stable colour per user — first seen = first colour
   const colorMap = useMemo(() => {
     const ids = [...new Set(assignments.map(a => a.user_id))]
     const map: Record<string, string> = {}
@@ -132,15 +124,28 @@ export default function WeeklyCalendarGrid({
     return map
   }, [assignments])
 
-  // Only pinned assignments belong in the grid
   const pinned = assignments.filter(
     a => a.calendar_day !== null && a.calendar_slot !== null
   )
 
   function cellAssignments(day: number, slot: CalendarSlot) {
-    return pinned.filter(
-      a => a.calendar_day === day && a.calendar_slot === slot
-    )
+    return pinned.filter(a => a.calendar_day === day && a.calendar_slot === slot)
+  }
+
+  function cellKey(day: number, slot: CalendarSlot) {
+    return `${day}-${slot}`
+  }
+
+  function handleDragOver(e: React.DragEvent, day: number, slot: CalendarSlot) {
+    e.preventDefault()
+    setDragOverCell(cellKey(day, slot))
+  }
+
+  function handleDrop(e: React.DragEvent, day: number, slot: CalendarSlot) {
+    e.preventDefault()
+    setDragOverCell(null)
+    const id = e.dataTransfer.getData('text/plain')
+    if (id) onDropOnCell?.(day, slot, id)
   }
 
   function renderCard(a: AssignmentWithDetails) {
@@ -150,18 +155,22 @@ export default function WeeklyCalendarGrid({
         assignment={a}
         color={colorMap[a.user_id] ?? 'bg-gray-100 border-gray-300'}
         isOwn={a.user_id === currentUserId}
-        onChangePin={onChangePin}
         onUnpin={onUnpin}
         onToggleReminder={onToggleReminder}
       />
     )
   }
 
+  function cellClass(day: number, slot: CalendarSlot, base: string) {
+    return dragOverCell === cellKey(day, slot)
+      ? `${base} bg-primary/20 ring-2 ring-primary/40`
+      : `${base} bg-muted/30`
+  }
+
   return (
     <>
       {/* ── Mobile portrait: day-picker + single-day view ── */}
       <div className="landscape:hidden md:hidden" dir="rtl">
-        {/* Day selector */}
         <div className="flex gap-1 overflow-x-auto pb-1 mb-3">
           {DAYS.map(day => (
             <button
@@ -180,7 +189,6 @@ export default function WeeklyCalendarGrid({
           ))}
         </div>
 
-        {/* Slots for the selected day */}
         <div className="space-y-3">
           {SLOTS.map(slot => {
             const cards = cellAssignments(selectedDay, slot.key)
@@ -188,11 +196,14 @@ export default function WeeklyCalendarGrid({
               <div key={slot.key}>
                 <p className="text-xs text-muted-foreground font-medium mb-1">{slot.label}</p>
                 <div
-                  className="min-h-[56px] bg-muted/30 rounded p-2 space-y-1"
+                  className={`min-h-[56px] rounded p-2 space-y-1 transition-colors ${cellClass(selectedDay, slot.key, '')}`}
                   data-testid={`cell-${selectedDay}-${slot.key}`}
+                  onDragOver={(e) => handleDragOver(e, selectedDay, slot.key)}
+                  onDragLeave={() => setDragOverCell(null)}
+                  onDrop={(e) => handleDrop(e, selectedDay, slot.key)}
                 >
                   {cards.length === 0 ? (
-                    <p className="text-xs text-muted-foreground/60 pt-1">ריק</p>
+                    <p className="text-xs text-muted-foreground/60 pt-1">גרור לכאן</p>
                   ) : (
                     cards.map(renderCard)
                   )}
@@ -206,7 +217,6 @@ export default function WeeklyCalendarGrid({
       {/* ── Landscape / desktop: full 7-column grid ── */}
       <div className="hidden landscape:block md:block overflow-x-auto" dir="rtl">
         <div className="min-w-[600px]">
-          {/* Header row: empty corner + 7 day labels */}
           <div className="grid grid-cols-8 gap-1 mb-1">
             <div />
             {DAYS.map(day => (
@@ -220,7 +230,6 @@ export default function WeeklyCalendarGrid({
               </div>
             ))}
           </div>
-          {/* Slot rows */}
           {SLOTS.map(slot => (
             <div key={slot.key} className="grid grid-cols-8 gap-1 mb-1">
               <div className="text-xs text-muted-foreground pt-1 leading-tight">
@@ -229,8 +238,11 @@ export default function WeeklyCalendarGrid({
               {DAYS.map(day => (
                 <div
                   key={day.index}
-                  className="min-h-[60px] bg-muted/30 rounded p-1 space-y-1"
+                  className={`min-h-[60px] rounded p-1 space-y-1 transition-colors ${cellClass(day.index, slot.key, '')}`}
                   data-testid={`cell-${day.index}-${slot.key}`}
+                  onDragOver={(e) => handleDragOver(e, day.index, slot.key)}
+                  onDragLeave={() => setDragOverCell(null)}
+                  onDrop={(e) => handleDrop(e, day.index, slot.key)}
                 >
                   {cellAssignments(day.index, slot.key).map(renderCard)}
                 </div>

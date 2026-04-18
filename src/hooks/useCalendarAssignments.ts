@@ -35,6 +35,7 @@ export function useCalendarAssignments(): UseCalendarAssignmentsResult {
       .select('*, chores!inner(title, coin_value), profiles!user_id(name, avatar_url)')
       .eq('week_start', weekStart)
       .eq('archived', false)
+      .neq('status', 'completed')
       .order('created_at', { ascending: true })
     if (!mountedRef.current) return
     if (error) {

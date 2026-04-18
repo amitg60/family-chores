@@ -56,8 +56,8 @@ describe('Admin WeeklyCalendarPage', () => {
       assignments: [], loading: false, error: null, refetch: mockRefetch,
     })
     renderPage()
-    expect(screen.getByText('ראשון')).toBeInTheDocument()
-    expect(screen.getByText('שבת')).toBeInTheDocument()
+    expect(screen.getAllByText('ראשון').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('שבת').length).toBeGreaterThan(0)
   })
 
   it('shows a player assignment in the correct grid cell', () => {
