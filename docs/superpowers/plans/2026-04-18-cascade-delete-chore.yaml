@@ -1,0 +1,745 @@
+plan:
+  title: Cascade Delete Chore Implementation Plan
+  header: |
+    > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development
+    > (recommended) or superpowers:executing-plans to implement this plan task-by-task.
+    > Steps use checkbox syntax for tracking. Design spec is at:
+    > docs/superpowers/specs/2026-04-18-cascade-delete-chore-design.yaml
+
+  goal: >
+    When an admin deletes a chore, all non-completed player assignments are
+    archived (hiding them from dashboards and calendars), reminder-enabled
+    players receive a notification, and the chore is soft-deleted — all in
+    one atomic server-side transaction. Pending completions block deletion
+    both in the UI (UX hint) and in the RPC (real enforcement).
+
+  architecture: >
+    A PostgreSQL RPC function (SECURITY INVOKER, single transaction) handles
+    authorization, status validation, pending-completion check, assignment
+    archiving, notification insertion, and soft-delete. A BEFORE UPDATE trigger
+    provides full cascade protection against direct table bypass paths.
+    ChoresPage does a client-side pre-check as a UX hint, then calls the RPC
+    on confirm.
+
+  tech_stack: >
+    PostgreSQL PL/pgSQL, React 18 + TypeScript, Supabase JS v2,
+    shadcn/ui Dialog, Vitest + React Testing Library
+
+file_map:
+  - path: supabase/migrations/018_cascade_delete_chore.sql
+    action: create
+    responsibility: delete_chore RPC + trg_chore_deleted_guard trigger function + trigger
+  - path: src/types/database.ts
+    action: modify
+    responsibility: add 'chore_deleted' to NotificationType union
+  - path: src/pages/admin/chores/ChoresPage.tsx
+    action: modify
+    responsibility: replace direct supabase update with pre-check + RPC flow
+  - path: src/pages/admin/chores/__tests__/ChoresPage.test.tsx
+    action: modify
+    responsibility: rewrite 4 stale delete tests, add 6 new tests covering new flow
+
+tasks:
+
+  - id: 1
+    title: "Migration — delete_chore RPC and trigger guard"
+    files:
+      create:
+        - supabase/migrations/018_cascade_delete_chore.sql
+
+    steps:
+
+      - id: 1.1
+        label: "Create the migration file"
+        checkbox: true
+        instruction: >
+          Create supabase/migrations/018_cascade_delete_chore.sql with the
+          exact content below. The RPC runs all six steps in one transaction.
+          The trigger guard provides full cascade protection for direct-bypass paths.
+        code: |
+          -- ============================================================
+          -- RPC: delete_chore
+          -- Sole enforcement point for all business rules.
+          -- SECURITY INVOKER: runs as calling user — RLS stays active.
+          -- ============================================================
+          CREATE OR REPLACE FUNCTION delete_chore(p_chore_id uuid)
+          RETURNS void
+          LANGUAGE plpgsql
+          SECURITY INVOKER
+          SET search_path = public, pg_catalog
+          AS $$
+          DECLARE
+            v_caller_family_id uuid;
+            v_chore_family_id  uuid;
+            v_chore_status     chore_status;
+          BEGIN
+            -- Step 1: Strict, null-safe family-scope authorization
+            SELECT family_id INTO v_caller_family_id
+            FROM profiles
+            WHERE id = auth.uid();
+
+            SELECT family_id, status INTO v_chore_family_id, v_chore_status
+            FROM chores
+            WHERE id = p_chore_id;
+
+            IF v_caller_family_id IS NULL
+               OR v_chore_family_id IS NULL
+               OR v_caller_family_id <> v_chore_family_id THEN
+              RAISE EXCEPTION 'UNAUTHORIZED';
+            END IF;
+
+            -- Step 2: Status validation
+            -- Already deleted: idempotent no-op, return immediately, no error.
+            IF v_chore_status = 'deleted' THEN
+              RETURN;
+            END IF;
+            -- Archived or pending_approval: not deletable.
+            IF v_chore_status IN ('archived', 'pending_approval') THEN
+              RAISE EXCEPTION 'INVALID_STATUS';
+            END IF;
+
+            -- Step 3: Pending completion check (server-side enforcement)
+            IF EXISTS (
+              SELECT 1
+              FROM chore_completions cc
+              JOIN chore_assignments ca ON cc.chore_assignment_id = ca.id
+              WHERE ca.chore_id = p_chore_id
+                AND cc.status = 'pending'
+            ) THEN
+              RAISE EXCEPTION 'PENDING_COMPLETIONS';
+            END IF;
+
+            -- Steps 4+5: Archive non-completed assignments; notify reminder players.
+            -- Single CTE statement — atomic, all-or-nothing with the rest of the tx.
+            WITH archived AS (
+              UPDATE chore_assignments
+              SET archived = true
+              WHERE chore_id = p_chore_id
+                AND status <> 'completed'
+              RETURNING user_id, reminder_enabled
+            )
+            INSERT INTO notifications
+              (user_id, family_id, type, title_he, body_he, related_entity_id, read)
+            SELECT
+              a.user_id,
+              v_chore_family_id,
+              'chore_deleted',
+              'משימה הוסרה',
+              'משימה שהיתה ברשימתך הוסרה על ידי מנהל',
+              p_chore_id,
+              false
+            FROM archived a
+            WHERE a.reminder_enabled = true;
+
+            -- Step 6: Soft-delete the chore (triggers trg_chore_deleted_guard)
+            UPDATE chores
+            SET status = 'deleted'
+            WHERE id = p_chore_id;
+          END;
+          $$;
+
+          -- ============================================================
+          -- Trigger function: full bypass guard
+          -- Fires on direct UPDATE chores SET status='deleted' paths.
+          -- Re-checks pending completions AND cascades assignment archiving.
+          -- ============================================================
+          CREATE OR REPLACE FUNCTION fn_chore_deleted_guard()
+          RETURNS trigger
+          LANGUAGE plpgsql
+          SECURITY INVOKER
+          SET search_path = public, pg_catalog
+          AS $$
+          BEGIN
+            -- Re-check pending completions (catches direct-bypass attempts)
+            IF EXISTS (
+              SELECT 1
+              FROM chore_completions cc
+              JOIN chore_assignments ca ON cc.chore_assignment_id = ca.id
+              WHERE ca.chore_id = NEW.id
+                AND cc.status = 'pending'
+            ) THEN
+              RAISE EXCEPTION 'PENDING_COMPLETIONS';
+            END IF;
+
+            -- Cascade archive non-completed assignments.
+            -- When called via RPC, assignments are already archived → no-op.
+            -- When called via direct bypass, this performs the full cascade.
+            UPDATE chore_assignments
+            SET archived = true
+            WHERE chore_id = NEW.id
+              AND status <> 'completed';
+
+            RETURN NEW;
+          END;
+          $$;
+
+          -- BEFORE UPDATE trigger on chores — fires only on 'deleted' transition
+          DROP TRIGGER IF EXISTS trg_chore_deleted_guard ON chores;
+          CREATE TRIGGER trg_chore_deleted_guard
+            BEFORE UPDATE ON chores
+            FOR EACH ROW
+            WHEN (NEW.status = 'deleted' AND OLD.status IS DISTINCT FROM 'deleted')
+            EXECUTE FUNCTION fn_chore_deleted_guard();
+
+      - id: 1.2
+        label: "Push migration to Supabase"
+        checkbox: true
+        instruction: Run from the family-chores directory.
+        command: npx supabase db push
+        expected_output: "Applying migration 018_cascade_delete_chore.sql... done"
+
+      - id: 1.3
+        label: "Smoke test the RPC in Supabase SQL editor"
+        checkbox: true
+        instruction: >
+          Open the Supabase dashboard → SQL Editor. Run each query below
+          in sequence to confirm the RPC exists and the trigger is attached.
+        code: |
+          -- Confirm RPC exists
+          SELECT routine_name, routine_type
+          FROM information_schema.routines
+          WHERE routine_name = 'delete_chore';
+          -- Expected: 1 row, routine_type = 'FUNCTION'
+
+          -- Confirm trigger exists
+          SELECT trigger_name, event_manipulation, action_timing
+          FROM information_schema.triggers
+          WHERE trigger_name = 'trg_chore_deleted_guard';
+          -- Expected: 1 row, event_manipulation = 'UPDATE', action_timing = 'BEFORE'
+
+      - id: 1.4
+        label: "Commit"
+        checkbox: true
+        command: |
+          git add supabase/migrations/018_cascade_delete_chore.sql
+          git commit -m "feat: add delete_chore RPC and cascade trigger guard"
+
+  - id: 2
+    title: "TypeScript type — add 'chore_deleted' to NotificationType"
+    files:
+      modify:
+        - src/types/database.ts
+
+    steps:
+
+      - id: 2.1
+        label: "Add 'chore_deleted' to NotificationType in src/types/database.ts"
+        checkbox: true
+        instruction: >
+          Find the NotificationType union (lines 14–17). Replace it with the
+          version below that adds 'chore_deleted'.
+        old_code: |
+          export type NotificationType =
+            | 'chore_assigned' | 'completion_reviewed' | 'trade_received' | 'trade_resolved'
+            | 'redemption_resolved' | 'proposal_resolved' | 'penalty_applied' | 'achievement_earned'
+            | 'reminder' | 'alias_vote_requested' | 'alias_vote_resolved'
+        new_code: |
+          export type NotificationType =
+            | 'chore_assigned' | 'completion_reviewed' | 'trade_received' | 'trade_resolved'
+            | 'redemption_resolved' | 'proposal_resolved' | 'penalty_applied' | 'achievement_earned'
+            | 'reminder' | 'alias_vote_requested' | 'alias_vote_resolved' | 'chore_deleted'
+
+      - id: 2.2
+        label: "Verify TypeScript compiles"
+        checkbox: true
+        command: npx tsc --noEmit
+        expected_output: "(no output — zero errors)"
+
+      - id: 2.3
+        label: "Commit"
+        checkbox: true
+        command: |
+          git add src/types/database.ts
+          git commit -m "feat: add chore_deleted to NotificationType"
+
+  - id: 3
+    title: "ChoresPage — pre-check hint + RPC delete flow (TDD)"
+    files:
+      modify:
+        - src/pages/admin/chores/ChoresPage.tsx
+        - src/pages/admin/chores/__tests__/ChoresPage.test.tsx
+
+    context: >
+      The current deleteChore function calls supabase.from('chores').update
+      directly. This needs to be replaced with: (1) a pre-check that queries
+      chore_assignments + chore_completions as a UX hint, (2) confirmDeleteChore
+      that calls supabase.rpc('delete_chore'). The mock file at
+      src/test/mocks/supabase.ts already exports mockRpc — import it.
+      Four existing delete tests are stale and must be rewritten; six new tests
+      cover the new flow.
+
+    steps:
+
+      - id: 3.1
+        label: "Write failing tests — update 4 stale tests, add 6 new tests"
+        checkbox: true
+        instruction: >
+          Open src/pages/admin/chores/__tests__/ChoresPage.test.tsx.
+          Add mockRpc to the import from the supabase mock (line 6).
+          Then replace the four stale delete tests and add the six new ones
+          as shown below. Do NOT touch any other tests.
+
+        import_change:
+          old: "import { mockFrom } from '../../../../test/mocks/supabase'"
+          new: "import { mockFrom, mockRpc } from '../../../../test/mocks/supabase'"
+
+        tests_to_replace:
+          note: >
+            Delete these four tests entirely and replace with the new versions below.
+            They tested the old supabase.from('chores').update path which no longer exists.
+          old_test_names:
+            - "'clicking delete button opens confirmation dialog with chore title'"
+            - "'confirming delete calls supabase update with status deleted and refetches'"
+            - "'cancelling dialog does not call supabase update'"
+            - "'shows error alert when delete mutation fails'"
+
+        replacement_and_new_tests: |
+          it('delete button click with no pending completions opens dialog', async () => {
+            mockUseChores.mockReturnValue({ chores: [activeChore], loading: false, error: null, refetch: mockRefetch })
+            // Pre-check: no assignments found — dialog should open
+            mockFrom.mockReturnValue({
+              select: vi.fn().mockReturnValue({
+                eq: vi.fn().mockResolvedValue({ data: [], error: null }),
+              }),
+            })
+            renderChoresPage()
+            await userEvent.click(screen.getByRole('button', { name: 'מחק' }))
+            await waitFor(() => {
+              expect(screen.getByRole('dialog')).toBeInTheDocument()
+              expect(within(screen.getByRole('dialog')).getByText(/כלי מטבח/)).toBeInTheDocument()
+            })
+          })
+
+          it('delete button click with pending completion shows warning and does not open dialog', async () => {
+            mockUseChores.mockReturnValue({ chores: [activeChore], loading: false, error: null, refetch: mockRefetch })
+            mockFrom.mockImplementation((table: string) => {
+              if (table === 'chore_assignments') {
+                return {
+                  select: vi.fn().mockReturnValue({
+                    eq: vi.fn().mockResolvedValue({ data: [{ id: 'ca1' }], error: null }),
+                  }),
+                }
+              }
+              return {
+                select: vi.fn().mockReturnValue({
+                  in: vi.fn().mockReturnValue({
+                    eq: vi.fn().mockReturnValue({
+                      limit: vi.fn().mockResolvedValue({ data: [{ id: 'cc1' }], error: null }),
+                    }),
+                  }),
+                }),
+              }
+            })
+            renderChoresPage()
+            await userEvent.click(screen.getByRole('button', { name: 'מחק' }))
+            await waitFor(() => {
+              expect(screen.getByRole('alert')).toHaveTextContent(
+                'לא ניתן למחוק - ישנה משימה הדורשת אישור או דחייה'
+              )
+              expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+            })
+          })
+
+          it('confirming delete calls rpc delete_chore and refetches', async () => {
+            mockUseChores.mockReturnValue({ chores: [activeChore], loading: false, error: null, refetch: mockRefetch })
+            mockFrom.mockReturnValue({
+              select: vi.fn().mockReturnValue({
+                eq: vi.fn().mockResolvedValue({ data: [], error: null }),
+              }),
+            })
+            mockRpc.mockResolvedValue({ error: null })
+            renderChoresPage()
+            await userEvent.click(screen.getByRole('button', { name: 'מחק' }))
+            await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument())
+            await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'מחק' }))
+            await waitFor(() => {
+              expect(mockRpc).toHaveBeenCalledWith('delete_chore', { p_chore_id: 'c1' })
+              expect(mockRefetch).toHaveBeenCalled()
+            })
+          })
+
+          it('cancelling dialog does not call rpc', async () => {
+            mockUseChores.mockReturnValue({ chores: [activeChore], loading: false, error: null, refetch: mockRefetch })
+            mockFrom.mockReturnValue({
+              select: vi.fn().mockReturnValue({
+                eq: vi.fn().mockResolvedValue({ data: [], error: null }),
+              }),
+            })
+            renderChoresPage()
+            await userEvent.click(screen.getByRole('button', { name: 'מחק' }))
+            await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument())
+            await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'ביטול' }))
+            expect(mockRpc).not.toHaveBeenCalled()
+          })
+
+          it('rpc PENDING_COMPLETIONS error shows correct message in dialog', async () => {
+            mockUseChores.mockReturnValue({ chores: [activeChore], loading: false, error: null, refetch: mockRefetch })
+            mockFrom.mockReturnValue({
+              select: vi.fn().mockReturnValue({
+                eq: vi.fn().mockResolvedValue({ data: [], error: null }),
+              }),
+            })
+            mockRpc.mockResolvedValue({ error: { message: 'PENDING_COMPLETIONS' } })
+            renderChoresPage()
+            await userEvent.click(screen.getByRole('button', { name: 'מחק' }))
+            await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument())
+            await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'מחק' }))
+            await waitFor(() => {
+              expect(within(screen.getByRole('dialog')).getByRole('alert')).toHaveTextContent(
+                'לא ניתן למחוק - ישנה משימה הדורשת אישור או דחייה'
+              )
+              expect(mockRefetch).not.toHaveBeenCalled()
+            })
+          })
+
+          it('rpc INVALID_STATUS error shows correct message in dialog', async () => {
+            mockUseChores.mockReturnValue({ chores: [activeChore], loading: false, error: null, refetch: mockRefetch })
+            mockFrom.mockReturnValue({
+              select: vi.fn().mockReturnValue({
+                eq: vi.fn().mockResolvedValue({ data: [], error: null }),
+              }),
+            })
+            mockRpc.mockResolvedValue({ error: { message: 'INVALID_STATUS' } })
+            renderChoresPage()
+            await userEvent.click(screen.getByRole('button', { name: 'מחק' }))
+            await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument())
+            await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'מחק' }))
+            await waitFor(() => {
+              expect(within(screen.getByRole('dialog')).getByRole('alert')).toHaveTextContent(
+                'לא ניתן למחוק משימה בסטטוס זה'
+              )
+              expect(mockRefetch).not.toHaveBeenCalled()
+            })
+          })
+
+          it('rpc UNAUTHORIZED error shows correct message in dialog', async () => {
+            mockUseChores.mockReturnValue({ chores: [activeChore], loading: false, error: null, refetch: mockRefetch })
+            mockFrom.mockReturnValue({
+              select: vi.fn().mockReturnValue({
+                eq: vi.fn().mockResolvedValue({ data: [], error: null }),
+              }),
+            })
+            mockRpc.mockResolvedValue({ error: { message: 'UNAUTHORIZED' } })
+            renderChoresPage()
+            await userEvent.click(screen.getByRole('button', { name: 'מחק' }))
+            await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument())
+            await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'מחק' }))
+            await waitFor(() => {
+              expect(within(screen.getByRole('dialog')).getByRole('alert')).toHaveTextContent(
+                'אין הרשאה למחוק משימה זו'
+              )
+              expect(mockRefetch).not.toHaveBeenCalled()
+            })
+          })
+
+          it('rpc generic error shows fallback message in dialog', async () => {
+            mockUseChores.mockReturnValue({ chores: [activeChore], loading: false, error: null, refetch: mockRefetch })
+            mockFrom.mockReturnValue({
+              select: vi.fn().mockReturnValue({
+                eq: vi.fn().mockResolvedValue({ data: [], error: null }),
+              }),
+            })
+            mockRpc.mockResolvedValue({ error: { message: 'unexpected db error' } })
+            renderChoresPage()
+            await userEvent.click(screen.getByRole('button', { name: 'מחק' }))
+            await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument())
+            await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'מחק' }))
+            await waitFor(() => {
+              expect(within(screen.getByRole('dialog')).getByRole('alert')).toHaveTextContent(
+                'שגיאה במחיקת המשימה'
+              )
+              expect(mockRefetch).not.toHaveBeenCalled()
+            })
+          })
+
+      - id: 3.2
+        label: "Run tests to verify new tests fail and existing tests still pass"
+        checkbox: true
+        command: npx vitest run src/pages/admin/chores/__tests__/ChoresPage.test.tsx
+        expected_output: >
+          The 10 new/replaced delete tests FAIL (delete flow not yet implemented).
+          All other tests (loading, empty state, archive, approve, reject, etc.) PASS.
+
+      - id: 3.3
+        label: "Implement updated ChoresPage.tsx"
+        checkbox: true
+        instruction: >
+          Replace the entire content of src/pages/admin/chores/ChoresPage.tsx
+          with the implementation below. Key changes from the current file:
+          (1) Add pendingWarningChoreId state.
+          (2) Remove deleteChore function.
+          (3) Add handleDeleteClick (pre-check hint) and confirmDeleteChore (RPC call).
+          (4) Delete button calls handleDeleteClick instead of setChoreToDelete.
+          (5) Inline warning shown below chore row when pendingWarningChoreId matches.
+          (6) Dialog confirm calls confirmDeleteChore.
+        code: |
+          import { useState } from 'react'
+          import { Link } from 'react-router-dom'
+          import { useChores } from '../../../hooks/useChores'
+          import { useFamilyMembers } from '../../../hooks/useFamilyMembers'
+          import { useAuth } from '../../../contexts/AuthContext'
+          import { supabase } from '../../../lib/supabase'
+          import { Button } from '../../../components/ui/button'
+          import { Badge } from '../../../components/ui/badge'
+          import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card'
+          import { Separator } from '../../../components/ui/separator'
+          import {
+            Dialog,
+            DialogContent,
+            DialogDescription,
+            DialogFooter,
+            DialogHeader,
+            DialogTitle,
+          } from '../../../components/ui/dialog'
+          import type { Chore, ChoreDifficulty } from '../../../types/database'
+
+          const difficultyLabel: Record<ChoreDifficulty, string> = {
+            easy: 'קל',
+            medium: 'בינוני',
+            hard: 'קשה',
+          }
+
+          const difficultyVariant: Record<ChoreDifficulty, 'secondary' | 'default' | 'destructive'> = {
+            easy: 'secondary',
+            medium: 'default',
+            hard: 'destructive',
+          }
+
+          export default function ChoresPage() {
+            const { chores, loading, error, refetch } = useChores()
+            const { members } = useFamilyMembers()
+            const { profile } = useAuth()
+            const [mutationError, setMutationError] = useState<string | null>(null)
+            const [choreToDelete, setChoreToDelete] = useState<Chore | null>(null)
+            const [pendingWarningChoreId, setPendingWarningChoreId] = useState<string | null>(null)
+
+            const activeChores = chores.filter(c => c.status === 'active')
+            const pendingChores = chores.filter(c => c.status === 'pending_approval')
+
+            function memberName(id: string | null): string {
+              if (!id) return 'מאגר משימות פתוח'
+              return members.find(m => m.id === id)?.name ?? id.slice(0, 8)
+            }
+
+            async function archiveChore(chore: Chore) {
+              setMutationError(null)
+              const { error } = await supabase.from('chores').update({ status: 'archived' }).eq('id', chore.id)
+              if (error) { setMutationError('שגיאה בארכוב המשימה') } else { refetch() }
+            }
+
+            async function approveChore(chore: Chore) {
+              setMutationError(null)
+              const { error } = await supabase
+                .from('chores')
+                .update({ status: 'active', approved_by: profile?.id })
+                .eq('id', chore.id)
+              if (error) { setMutationError('שגיאה באישור ההצעה') } else { refetch() }
+            }
+
+            async function rejectChore(chore: Chore) {
+              setMutationError(null)
+              const { error } = await supabase.from('chores').update({ status: 'archived' }).eq('id', chore.id)
+              if (error) { setMutationError('שגיאה בדחיית ההצעה') } else { refetch() }
+            }
+
+            async function handleDeleteClick(chore: Chore) {
+              setMutationError(null)
+              setPendingWarningChoreId(null)
+              // UX hint only — server enforces this rule regardless
+              const { data: assignments } = await supabase
+                .from('chore_assignments')
+                .select('id')
+                .eq('chore_id', chore.id)
+              const ids = ((assignments ?? []) as { id: string }[]).map(a => a.id)
+              if (ids.length > 0) {
+                const { data: pending } = await supabase
+                  .from('chore_completions')
+                  .select('id')
+                  .in('chore_assignment_id', ids)
+                  .eq('status', 'pending')
+                  .limit(1)
+                if (((pending ?? []) as unknown[]).length > 0) {
+                  setPendingWarningChoreId(chore.id)
+                  return
+                }
+              }
+              setChoreToDelete(chore)
+            }
+
+            async function confirmDeleteChore(chore: Chore) {
+              setMutationError(null)
+              const { error } = await supabase.rpc('delete_chore', { p_chore_id: chore.id })
+              if (error) {
+                const msg = error.message ?? ''
+                if (msg.includes('PENDING_COMPLETIONS')) {
+                  setMutationError('לא ניתן למחוק - ישנה משימה הדורשת אישור או דחייה')
+                } else if (msg.includes('INVALID_STATUS')) {
+                  setMutationError('לא ניתן למחוק משימה בסטטוס זה')
+                } else if (msg.includes('UNAUTHORIZED')) {
+                  setMutationError('אין הרשאה למחוק משימה זו')
+                } else {
+                  setMutationError('שגיאה במחיקת המשימה')
+                }
+              } else {
+                setChoreToDelete(null)
+                refetch()
+              }
+            }
+
+            if (loading) {
+              return (
+                <div className="flex items-center justify-center py-12">
+                  <div role="status" className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+                </div>
+              )
+            }
+
+            if (error) {
+              return <p className="text-destructive py-4">{error}</p>
+            }
+
+            return (
+              <div className="space-y-6" dir="rtl">
+                <div className="flex items-center justify-between">
+                  <h1 className="text-2xl font-bold">ניהול משימות</h1>
+                  <Button asChild>
+                    <Link to="/admin/chores/new">משימה חדשה</Link>
+                  </Button>
+                </div>
+
+                {mutationError && !choreToDelete && (
+                  <p role="alert" className="text-sm text-destructive">{mutationError}</p>
+                )}
+
+                {pendingChores.length > 0 && (
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-lg">הצעות ממתינות לאישור</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      {pendingChores.map(chore => (
+                        <div key={chore.id} className="flex items-center justify-between py-2">
+                          <div>
+                            <p className="font-medium">{chore.title}</p>
+                            <p className="text-sm text-muted-foreground">
+                              הוצע ע״י {memberName(chore.proposed_by)}
+                            </p>
+                          </div>
+                          <div className="flex gap-2">
+                            <Button size="sm" onClick={() => approveChore(chore)}>אשר</Button>
+                            <Button size="sm" variant="outline" onClick={() => rejectChore(chore)}>דחה</Button>
+                          </div>
+                        </div>
+                      ))}
+                    </CardContent>
+                  </Card>
+                )}
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg">משימות פעילות</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-2">
+                    {activeChores.length === 0 ? (
+                      <p className="text-muted-foreground text-sm">אין משימות פעילות</p>
+                    ) : (
+                      activeChores.map((chore, i) => (
+                        <div key={chore.id}>
+                          {i > 0 && <Separator className="my-2" />}
+                          <div className="flex items-center justify-between py-1">
+                            <div className="space-y-1">
+                              <div className="flex items-center gap-2">
+                                <span className="font-medium">{chore.title}</span>
+                                <Badge variant={difficultyVariant[chore.difficulty]}>
+                                  {difficultyLabel[chore.difficulty]}
+                                </Badge>
+                              </div>
+                              <p className="text-sm text-muted-foreground">
+                                {chore.coin_value} מטבעות · {memberName(chore.assigned_to)}
+                              </p>
+                            </div>
+                            <div className="flex gap-2">
+                              <Button size="sm" variant="outline" asChild>
+                                <Link to={`/admin/chores/${chore.id}/edit`}>עריכה</Link>
+                              </Button>
+                              <Button size="sm" variant="outline" onClick={() => archiveChore(chore)}>
+                                ארכיון
+                              </Button>
+                              <Button size="sm" variant="destructive" onClick={() => handleDeleteClick(chore)}>
+                                מחק
+                              </Button>
+                            </div>
+                          </div>
+                          {pendingWarningChoreId === chore.id && (
+                            <p role="alert" className="text-xs text-destructive mt-1">
+                              לא ניתן למחוק - ישנה משימה הדורשת אישור או דחייה
+                            </p>
+                          )}
+                        </div>
+                      ))
+                    )}
+                  </CardContent>
+                </Card>
+
+                <Dialog open={choreToDelete !== null} onOpenChange={(open) => { if (!open) setChoreToDelete(null) }}>
+                  <DialogContent dir="rtl">
+                    <DialogHeader>
+                      <DialogTitle>מחיקת משימה</DialogTitle>
+                      <DialogDescription>
+                        האם למחוק את המשימה &quot;{choreToDelete?.title}&quot;? לא ניתן לשחזר.
+                      </DialogDescription>
+                    </DialogHeader>
+                    {mutationError && (
+                      <p role="alert" className="text-sm text-destructive">{mutationError}</p>
+                    )}
+                    <DialogFooter>
+                      <Button variant="outline" onClick={() => setChoreToDelete(null)}>ביטול</Button>
+                      <Button
+                        variant="destructive"
+                        onClick={() => { if (choreToDelete) confirmDeleteChore(choreToDelete) }}
+                      >
+                        מחק
+                      </Button>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
+              </div>
+            )
+          }
+
+      - id: 3.4
+        label: "Run ChoresPage tests to verify all pass"
+        checkbox: true
+        command: npx vitest run src/pages/admin/chores/__tests__/ChoresPage.test.tsx
+        expected_output: "All tests PASS (existing + 10 new/replaced delete tests)"
+
+      - id: 3.5
+        label: "Run full test suite to check for regressions"
+        checkbox: true
+        command: npx vitest run
+        expected_output: "All tests PASS"
+
+      - id: 3.6
+        label: "Commit"
+        checkbox: true
+        command: |
+          git add src/pages/admin/chores/ChoresPage.tsx src/pages/admin/chores/__tests__/ChoresPage.test.tsx
+          git commit -m "feat: replace deleteChore with pre-check hint and delete_chore RPC"
+
+self_review:
+  spec_coverage:
+    rpc_enforcement: "Task 1 — delete_chore RPC with all 6 steps"
+    trigger_bypass_guard: "Task 1 — fn_chore_deleted_guard + trg_chore_deleted_guard"
+    notification_type: "Task 2 — chore_deleted added to NotificationType"
+    ui_pre_check_hint: "Task 3 step 3.3 — handleDeleteClick with two-step query"
+    rpc_call_on_confirm: "Task 3 step 3.3 — confirmDeleteChore with error mapping"
+    idempotency: "Task 1 — early RETURN when status already = 'deleted'"
+    status_validation: "Task 1 — INVALID_STATUS for archived/pending_approval"
+    error_messages: "Task 3 — all 4 error codes mapped to Hebrew strings"
+    no_hook_changes: "Confirmed — useChoreAssignments and useCalendarAssignments unchanged"
+  placeholder_scan: "No TBDs or incomplete sections — all code is complete"
+  type_consistency:
+    delete_chore_rpc_arg: "p_chore_id uuid in SQL, p_chore_id in supabase.rpc call — consistent"
+    chore_deleted_notification: "Defined in Task 2 types, used in Task 1 SQL INSERT — consistent"
+    pending_warning_state: "pendingWarningChoreId defined in state, used in JSX — consistent"
+    confirm_function_name: "confirmDeleteChore defined and called in onClick — consistent"
