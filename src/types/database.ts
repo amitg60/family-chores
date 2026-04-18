@@ -14,7 +14,7 @@ export type AchievementTrigger = 'chore_count' | 'coin_total' | 'trade_count' | 
 export type NotificationType =
   | 'chore_assigned' | 'completion_reviewed' | 'trade_received' | 'trade_resolved'
   | 'redemption_resolved' | 'proposal_resolved' | 'penalty_applied' | 'achievement_earned'
-  | 'reminder' | 'alias_vote_requested' | 'alias_vote_resolved'
+  | 'reminder' | 'alias_vote_requested' | 'alias_vote_resolved' | 'chore_deleted'
 export type FeedbackCategory = 'bug' | 'improvement' | 'love' | 'bothers'
 export type FeedbackMood = 'happy' | 'neutral' | 'frustrated'
 
