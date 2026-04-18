@@ -60,11 +60,11 @@ database:
         id = auth.uid(). Both must be non-null and equal. Raises 'UNAUTHORIZED'
         if not. This is the strict, non-leaky family authorization gate.
       2_status_validation: >
-        Chore must have status = 'active'. Raises 'INVALID_STATUS' if the chore
-        is already 'deleted' (idempotency — treat as no-op by returning early,
-        not raising), 'archived' (not deletable, must be unarchived first), or
-        'pending_approval' (not deletable, must be approved or rejected first).
-        Early return on already-deleted prevents double-processing.
+        If the chore is already 'deleted': return immediately with no error and
+        no further action (idempotent no-op). Do not raise an exception.
+        If the chore is 'archived' or 'pending_approval': raise SQLSTATE 'P0001'
+        with message 'INVALID_STATUS' — these states are not deletable.
+        Only status = 'active' proceeds past this step.
       3_pending_completion_check: >
         Check for any chore_completions.status = 'pending' linked to this chore
         via chore_assignments. Raises 'PENDING_COMPLETIONS' if found.
@@ -82,10 +82,10 @@ database:
         UPDATE chores SET status = 'deleted' WHERE id = p_chore_id.
 
     idempotency: >
-      If the chore is already status = 'deleted' when the RPC is called, the
-      function returns without error and without taking any action. Assignments
-      were already archived in the original call. Calling delete_chore twice
-      on the same chore is safe.
+      If the chore is already status = 'deleted' when the RPC is called, step 2
+      returns immediately with no error and no further action. No exception is
+      raised, no assignments are touched again. Calling delete_chore twice on
+      the same chore is safe and produces no observable side effects.
 
   rls_coverage:
     chores: >
@@ -109,12 +109,46 @@ database:
     search_path: "public, pg_catalog"
     fires_when: "NEW.status = 'deleted' AND OLD.status != 'deleted'"
     description: >
-      Secondary guard only — not the primary enforcement point. Catches direct
-      table UPDATE calls that bypass the RPC (e.g. direct PostgREST or service
-      role misuse). Re-checks for pending completions and raises an exception
-      if found. Does not cascade assignments — that is the RPC's responsibility.
+      Secondary guard — not the primary enforcement point, but provides full
+      protection for direct-bypass paths (e.g. direct PostgREST or service role
+      misuse). Executes two actions in order:
+      (1) Re-checks for pending completions and raises an exception if found —
+      same check as the RPC, ensuring no bypass can skip it.
+      (2) Archives all non-completed chore_assignments for this chore
+      (SET archived = true WHERE chore_id = NEW.id AND status != 'completed').
+      This means even a direct table UPDATE that bypasses the RPC still cascades
+      correctly. The trigger and RPC are consistent — the RPC archives first then
+      updates the chore, so the trigger sees archived rows already in place and
+      the archive step is effectively a no-op when called via the RPC.
       SET search_path prevents schema injection. Fires only on actual status
       transition to 'deleted', never on unrelated chore updates.
+
+views_audit:
+  description: >
+    All hooks and pages that read chore_assignments or depend on assignment data
+    were audited to confirm none expose deleted-chore assignments after archiving.
+  hooks:
+    useChoreAssignments:
+      filters_archived: true
+      verdict: safe — archived = false filter excludes all archived assignments
+    useCalendarAssignments:
+      filters_archived: true
+      verdict: safe — archived = false filter excludes all archived assignments
+    usePendingCompletions:
+      queries: chore_completions (not chore_assignments directly)
+      verdict: >
+        safe — the RPC blocks deletion if any pending completions exist, so
+        by the time a chore is deleted there are no pending completions to show.
+        This hook can never surface a completion for a deleted chore.
+    useAdminDashboardStats:
+      queries: coin_transactions and trade_offers only
+      verdict: safe — does not touch chore_assignments at all
+    useWeeklyPopulation:
+      queries: calls populate_weekly_assignments RPC only
+      verdict: safe — does not read chore_assignments directly
+  conclusion: >
+    No existing hook or page reads unarchived chore_assignments without the
+    archived = false filter. No additional query changes are required.
 
 types:
   file: src/types/database.ts
