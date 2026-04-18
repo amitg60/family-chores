@@ -35,7 +35,7 @@ export function useChoreAssignments(userId: string | undefined): UseChoreAssignm
       .eq('user_id', userId)
       .eq('week_start', weekStart)
       .eq('archived', false)
-      .order('created_at', { ascending: true })
+      .order('updated_at', { ascending: false })
     if (!mountedRef.current) return
     if (error) {
       setError(error.message)
