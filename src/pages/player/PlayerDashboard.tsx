@@ -29,6 +29,11 @@ const statusVariant: Record<AssignmentStatus, 'default' | 'secondary' | 'destruc
   failed: 'destructive',
 }
 
+function getStatusLabel(a: { status: AssignmentStatus; hasRejection?: boolean }): string {
+  if (a.status === 'pending' && a.hasRejection) return 'ממתין לשליחה מחדש'
+  return statusLabel[a.status]
+}
+
 export default function PlayerDashboard() {
   const { profile } = useAuth()
   const { assignments, loading } = useChoreAssignments(profile?.id)
@@ -117,7 +122,7 @@ export default function PlayerDashboard() {
                 </div>
                 <div className="flex items-center gap-2">
                   <Badge variant={statusVariant[a.status]}>
-                    {statusLabel[a.status]}
+                    {getStatusLabel(a)}
                   </Badge>
                   {(a.status === 'pending' || a.status === 'in_progress') && (
                     <Button size="sm" asChild>

@@ -31,13 +31,23 @@ export function useChoreAssignments(userId: string | undefined): UseChoreAssignm
     const weekStart = getCurrentWeekStart()
     const { data, error } = await supabase
       .from('chore_assignments')
-      .select('*')
+      .select('*, chore_completions(status)')
       .eq('user_id', userId)
       .eq('week_start', weekStart)
       .eq('archived', false)
       .order('created_at', { ascending: true })
     if (!mountedRef.current) return
-    if (error) { setError(error.message) } else { setAssignments((data as ChoreAssignment[]) ?? []) }
+    if (error) {
+      setError(error.message)
+    } else {
+      const assignments = ((data ?? []) as (ChoreAssignment & { chore_completions: { status: string }[] })[]).map(
+        ({ chore_completions, ...a }) => ({
+          ...a,
+          hasRejection: chore_completions?.some(c => c.status === 'rejected') ?? false,
+        })
+      )
+      setAssignments(assignments as ChoreAssignment[])
+    }
     setLoading(false)
   }, [userId])
 

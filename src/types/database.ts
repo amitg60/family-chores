@@ -68,6 +68,7 @@ export interface ChoreAssignment {
   archived: boolean
   created_at: string
   updated_at: string
+  hasRejection?: boolean
 }
 
 export interface ChoreCompletion {
