@@ -30,7 +30,7 @@ ALTER TABLE chores
 ```
 
 **Semantics:**
-- Recurring tasks (`recurrence_type != 'none'`): always `TRUE`. Never changed by the system.
+- Recurring tasks (`recurrence_type != 'none'`): always `TRUE`. The Edge Function that creates recurring tasks explicitly sets `is_pool_visible = TRUE` rather than relying on the column default, ensuring consistency if the default ever changes.
 - Non-recurring tasks (`recurrence_type = 'none'`): starts `TRUE`. Set to `FALSE` when a player self-assigns or admin assigns via the Edit Chore form. Reset to `TRUE` if the assignment is deleted or fails.
 
 `chores.assigned_to` is kept for non-recurring chores only (existing behaviour). For recurring chores it must remain `NULL`.
@@ -182,6 +182,11 @@ Tapping any card in a slot opens the full assignment detail sheet (same as exist
 { chore_id: string, calendar_day: number | null, calendar_slot: string | null }
 ```
 
+**Input validation (before any DB access):**
+- `chore_id`: must be a valid UUID string — reject with `INVALID_INPUT` if not
+- `calendar_day`: must be `null` or an integer in `[0, 6]` — reject with `INVALID_CALENDAR_DAY` otherwise
+- `calendar_slot`: must be `null` or one of `'morning' | 'noon' | 'afternoon'` — reject with `INVALID_CALENDAR_SLOT` otherwise
+
 **Server-side validation (service_role):**
 1. Verify calling user's `family_id` matches the chore's `family_id` — rejects cross-family requests
 2. Verify chore `status = 'active'` and `is_pool_visible = TRUE`
@@ -190,10 +195,11 @@ Tapping any card in a slot opens the full assignment detail sheet (same as exist
 5. Insert `chore_assignments` row with `assigned_by = caller_uid`
 6. For `recurrence_type = 'none'`: set `chores.is_pool_visible = FALSE`
 7. Insert `chore_assigned` notification for the player
+8. Log the assignment event (see Section 8.2)
 
 All steps run in a single Postgres transaction via `service_role`. On any validation failure, return a structured error code (not a raw Postgres error) so the client can show a Hebrew message.
 
-**Rate limit:** 20 calls/minute per user.
+**Rate limit:** 20 calls/minute per user — enforced via Upstash Redis (`@upstash/ratelimit` library) within the Edge Function. The Redis instance is provisioned via the Supabase Marketplace integration. If Redis is unavailable, the function fails open (allows the request) and logs a warning — rate limiting is a protection layer, not a hard dependency for correctness.
 
 ### 6.2 `admin-assign-chore`
 
@@ -204,15 +210,21 @@ Called only for **pool-side admin assignment** (admin taps assign on a pool card
 { chore_id: string, user_ids: string[] }
 ```
 
+**Input validation (before any DB access):**
+- `chore_id`: must be a valid UUID string — reject with `INVALID_INPUT` if not
+- `user_ids`: must be a non-empty array of valid UUID strings — reject with `INVALID_INPUT` otherwise
+- For `recurrence_type = 'none'`: `user_ids` must have **exactly 1 entry** — reject with `TOO_MANY_ASSIGNEES` if more than 1 is provided
+
 **Server-side validation:**
 1. Verify caller is `admin` and shares `family_id` with the chore
 2. Verify chore `status = 'active'`
-3. For `recurrence_type = 'none'`: `user_ids` must have exactly 1 entry; set `is_pool_visible = FALSE`
-4. For recurring: `user_ids` may have multiple entries
+3. Verify all `user_ids` belong to the same family as the chore
+4. For `recurrence_type = 'none'`: set `is_pool_visible = FALSE`
 5. Insert one `chore_assignments` row per `user_id` with `assigned_by = admin_uid` (`ON CONFLICT DO NOTHING`)
 6. Insert `chore_assigned` notification per player
+7. Log the assignment event (see Section 8.2)
 
-**Rate limit:** 30 calls/minute per admin.
+**Rate limit:** 30 calls/minute per admin — same Upstash Redis mechanism as `self-assign-chore`.
 
 ---
 
@@ -229,7 +241,35 @@ DROP POLICY IF EXISTS "assignments: players can insert for themselves; admins ca
 
 Players retain:
 - **SELECT**: own assignments (unchanged)
-- **UPDATE**: `calendar_day`, `calendar_slot`, `reminder_enabled` only — enforced via `WITH CHECK (user_id = auth.uid())`
+- **UPDATE**: `calendar_day`, `calendar_slot`, `reminder_enabled` only
+
+The UPDATE policy is replaced with an explicit column-level restriction using a trigger rather than relying solely on `WITH CHECK`. A `BEFORE UPDATE` trigger on `chore_assignments` raises an exception if a player attempts to change any column other than `calendar_day`, `calendar_slot`, or `reminder_enabled`:
+
+```sql
+CREATE OR REPLACE FUNCTION enforce_player_assignment_update()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+  IF NOT is_admin() THEN
+    IF (OLD.chore_id      IS DISTINCT FROM NEW.chore_id)      OR
+       (OLD.user_id       IS DISTINCT FROM NEW.user_id)       OR
+       (OLD.week_start    IS DISTINCT FROM NEW.week_start)    OR
+       (OLD.status        IS DISTINCT FROM NEW.status)        OR
+       (OLD.assigned_by   IS DISTINCT FROM NEW.assigned_by)   OR
+       (OLD.archived      IS DISTINCT FROM NEW.archived)
+    THEN
+      RAISE EXCEPTION 'FORBIDDEN_FIELD_UPDATE';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER chore_assignments_player_update_guard
+  BEFORE UPDATE ON chore_assignments
+  FOR EACH ROW EXECUTE FUNCTION enforce_player_assignment_update();
+```
+
+This defence-in-depth approach means even if an RLS `WITH CHECK` misconfiguration occurs, players cannot overwrite protected fields.
 
 ### 7.2 `chores` — remove player UPDATE access to `is_pool_visible`
 
@@ -237,12 +277,51 @@ The existing player UPDATE policy does not cover chores (only admins can update 
 
 ---
 
-## 8. Security Notes
+## 8. Security & Observability
 
+### 8.1 Security principles
 - All SQL within Edge Functions uses parameterised queries (Supabase JS client `.eq()` / `.insert()` calls) — no string interpolation
 - `family_id` ownership is verified server-side on every Edge Function call before any read or write
 - `assigned_by` is set server-side from `auth.uid()` — clients cannot spoof it
-- Structured error codes returned to clients: `CHORE_NOT_FOUND`, `ALREADY_ASSIGNED`, `NOT_IN_FAMILY`, `CHORE_TAKEN` — no raw Postgres messages exposed
+- Structured error codes returned to clients: `CHORE_NOT_FOUND`, `ALREADY_ASSIGNED`, `NOT_IN_FAMILY`, `CHORE_TAKEN`, `INVALID_INPUT`, `INVALID_CALENDAR_DAY`, `INVALID_CALENDAR_SLOT`, `TOO_MANY_ASSIGNEES`, `FORBIDDEN_FIELD_UPDATE` — no raw Postgres error messages exposed
+- Raw Postgres errors are caught in a top-level `try/catch` in each Edge Function and logged server-side; the client receives only the generic `INTERNAL_ERROR` code
+
+### 8.2 Client-side error handling
+The client maintains a map of error codes to Hebrew messages:
+```typescript
+const ASSIGNMENT_ERRORS: Record<string, string> = {
+  CHORE_NOT_FOUND:        'המשימה לא נמצאה',
+  ALREADY_ASSIGNED:       'כבר שויכת למשימה זו בחריץ זה',
+  NOT_IN_FAMILY:          'אין הרשאה לגשת למשימה זו',
+  CHORE_TAKEN:            'המשימה כבר נלקחה על ידי שחקן אחר',
+  INVALID_INPUT:          'קלט לא תקין — אנא נסה שנית',
+  INVALID_CALENDAR_DAY:   'יום לא תקין',
+  INVALID_CALENDAR_SLOT:  'חריץ זמן לא תקין',
+  TOO_MANY_ASSIGNEES:     'ניתן לשייך רק שחקן אחד למשימה שאינה חוזרת',
+  INTERNAL_ERROR:         'שגיאה פנימית — אנא נסה שנית מאוחר יותר',
+}
+```
+The slot-picker sheet and pool card both display the localised message as a toast notification on failure.
+
+### 8.3 Edge Function logging
+Both `self-assign-chore` and `admin-assign-chore` emit structured log entries using `console.log` (captured by Supabase Edge Function logs):
+
+**On success:**
+```json
+{ "event": "chore_assigned", "chore_id": "...", "user_id": "...", "assigned_by": "...", "recurrence_type": "daily", "calendar_day": 1, "calendar_slot": "morning", "ts": "2026-04-18T10:00:00Z" }
+```
+
+**On validation failure:**
+```json
+{ "event": "assign_rejected", "reason": "ALREADY_ASSIGNED", "chore_id": "...", "user_id": "...", "ts": "..." }
+```
+
+**On unexpected error:**
+```json
+{ "event": "assign_error", "message": "<sanitised error message, no PII>", "chore_id": "...", "user_id": "...", "ts": "..." }
+```
+
+No PII (email, name, photo URLs) is written to logs. `user_id` and `chore_id` are UUIDs — opaque identifiers suitable for audit without exposing personal data.
 
 ---
 
@@ -250,7 +329,7 @@ The existing player UPDATE policy does not cover chores (only admins can update 
 
 | File | Change |
 |---|---|
-| `supabase/migrations/015_task_pool_multi_assign.sql` | `is_pool_visible` column, `assigned_by` column, updated unique constraint, drop player INSERT policy |
+| `supabase/migrations/015_task_pool_multi_assign.sql` | `is_pool_visible` column, `assigned_by` column, updated unique constraint, drop player INSERT policy, player UPDATE guard trigger |
 | `supabase/functions/self-assign-chore/index.ts` | New Edge Function |
 | `supabase/functions/admin-assign-chore/index.ts` | New Edge Function |
 | `src/types/database.ts` | Add `is_pool_visible` to `Chore`; add `assigned_by` to `ChoreAssignment` |
