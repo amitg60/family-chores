@@ -41,20 +41,13 @@ async function validateToken(
   }
 }
 
-const enc = new TextEncoder()
-
 function htmlResponse(html: string, status = 200): Response {
-  return new Response(enc.encode(html), {
+  return new Response(new Blob([html], { type: 'text/html; charset=utf-8' }), {
     status,
-    headers: {
-      'Content-Type': 'text/html; charset=utf-8',
-      'Cache-Control': 'no-store, max-age=0',
-      'Vary': '*',
-    },
+    headers: { 'Cache-Control': 'no-store, max-age=0' },
   })
 }
 
-// Keep for non-HTML responses
 const PLAIN_HEADERS = { 'Content-Type': 'text/plain; charset=utf-8' }
 
 function htmlPage(body: string): string {
