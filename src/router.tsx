@@ -24,6 +24,7 @@ import FeedbackDashboard from './pages/admin/feedback/FeedbackDashboard'
 import PlayersPage from './pages/admin/players/PlayersPage'
 import AchievementsPage from './pages/player/achievements/AchievementsPage'
 import ProfilePage from './pages/player/profile/ProfilePage'
+import EmailActionPage from './pages/EmailActionPage'
 
 function RootRedirect() {
   const { profile, session, loading } = useAuth()
@@ -33,6 +34,10 @@ function RootRedirect() {
 }
 
 export const router = createBrowserRouter([
+  {
+    path: '/email-action',
+    element: <EmailActionPage />,
+  },
   {
     path: '/login',
     element: <LoginPage />,
