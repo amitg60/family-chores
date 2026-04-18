@@ -52,6 +52,7 @@ export interface Chore {
   approved_by: string | null
   due_date: string | null
   last_traded_price: number | null
+  is_pool_visible: boolean
   created_at: string
   updated_at: string
 }
@@ -66,6 +67,7 @@ export interface ChoreAssignment {
   reminder_enabled: boolean
   status: AssignmentStatus
   archived: boolean
+  assigned_by: string | null
   created_at: string
   updated_at: string
   hasRejection?: boolean
