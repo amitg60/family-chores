@@ -43,7 +43,7 @@ ALTER TABLE chore_assignments
 -- PART 4: Drop player INSERT policy on chore_assignments
 -- All inserts now go through Edge Functions (service_role).
 -- ============================================================
-DROP POLICY IF EXISTS "assignments: players can insert for themselves; admins can insert for anyone"
+DROP POLICY IF EXISTS "assignments: insert own or admin in family"
   ON chore_assignments;
 
 -- ============================================================
@@ -52,7 +52,8 @@ DROP POLICY IF EXISTS "assignments: players can insert for themselves; admins ca
 -- RLS WITH CHECK misconfiguration occurs (defence in depth).
 -- ============================================================
 CREATE OR REPLACE FUNCTION enforce_player_assignment_update()
-RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER AS $$
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public, pg_temp AS $$
 BEGIN
   IF NOT is_admin() THEN
     IF (OLD.chore_id    IS DISTINCT FROM NEW.chore_id)    OR
