@@ -41,11 +41,21 @@ async function validateToken(
   }
 }
 
-const BASE_HEADERS = {
-  'Content-Type': 'text/html; charset=utf-8',
-  'Cache-Control': 'no-store, max-age=0',
-  'Vary': '*',
+const enc = new TextEncoder()
+
+function htmlResponse(html: string, status = 200): Response {
+  return new Response(enc.encode(html), {
+    status,
+    headers: {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'no-store, max-age=0',
+      'Vary': '*',
+    },
+  })
 }
+
+// Keep for non-HTML responses
+const PLAIN_HEADERS = { 'Content-Type': 'text/plain; charset=utf-8' }
 
 function htmlPage(body: string): string {
   return `<!DOCTYPE html>
@@ -65,17 +75,11 @@ function terminalPage(appUrl: string): Response {
   const link = appUrl
     ? `<a href="${appUrl}" style="color:#6366f1;text-decoration:underline;">פתח את האפליקציה</a>`
     : 'אנא פתח את האפליקציה'
-  return new Response(
-    htmlPage(`<p style="font-size:1.2rem;color:#374151;">⚠️ לא ניתן לבצע את הפעולה. ${link}</p>`),
-    { headers: BASE_HEADERS }
-  )
+  return htmlResponse(htmlPage(`<p style="font-size:1.2rem;color:#374151;">⚠️ לא ניתן לבצע את הפעולה. ${link}</p>`))
 }
 
 function alreadyActionedPage(): Response {
-  return new Response(
-    htmlPage(`<p style="font-size:1.2rem;color:#374151;">ℹ️ הגשה זו כבר טופלה.</p>`),
-    { headers: BASE_HEADERS }
-  )
+  return htmlResponse(htmlPage(`<p style="font-size:1.2rem;color:#374151;">ℹ️ הגשה זו כבר טופלה.</p>`))
 }
 
 function confirmationPage(token: string, action: string): Response {
@@ -86,8 +90,7 @@ function confirmationPage(token: string, action: string): Response {
   const btnLabel = isApprove ? 'אשר' : 'דחה'
   const btnColor = isApprove ? '#22c55e' : '#ef4444'
   const encodedToken = encodeURIComponent(token)
-  return new Response(
-    htmlPage(`
+  return htmlResponse(htmlPage(`
       <h2 style="color:#1e1b4b;margin:0 0 24px 0;">${heading}</h2>
       <button id="btn" onclick="confirm()"
               style="background:${btnColor};color:white;padding:14px 28px;border:none;border-radius:8px;font-size:1.1rem;font-weight:bold;cursor:pointer;min-height:44px;min-width:44px;">
@@ -102,19 +105,14 @@ function confirmationPage(token: string, action: string): Response {
           document.open(); document.write(html); document.close();
         }
       </script>
-    `),
-    { headers: BASE_HEADERS }
-  )
+    `))
 }
 
 function successPage(action: string): Response {
   const msg = action === 'approve'
     ? '✅ ההגשה אושרה בהצלחה. השחקן יקבל את המטבעות.'
     : '❌ ההגשה נדחתה.'
-  return new Response(
-    htmlPage(`<p style="font-size:1.2rem;color:#374151;">${msg}</p>`),
-    { headers: BASE_HEADERS }
-  )
+  return htmlResponse(htmlPage(`<p style="font-size:1.2rem;color:#374151;">${msg}</p>`))
 }
 
 Deno.serve(async (req) => {
@@ -123,7 +121,7 @@ Deno.serve(async (req) => {
   const token = url.searchParams.get('token')
 
   if (!token) {
-    return new Response('missing token', { status: 400, headers: { 'Content-Type': 'text/plain; charset=utf-8' } })
+    return new Response('missing token', { status: 400, headers: PLAIN_HEADERS })
   }
 
   const webhookSecret = Deno.env.get('WEBHOOK_SECRET')
@@ -191,5 +189,5 @@ Deno.serve(async (req) => {
     return successPage(action)
   }
 
-  return new Response('Method not allowed', { status: 405, headers: BASE_HEADERS })
+  return new Response('Method not allowed', { status: 405, headers: PLAIN_HEADERS })
 })
