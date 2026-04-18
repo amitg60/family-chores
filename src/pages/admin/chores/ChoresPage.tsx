@@ -36,6 +36,7 @@ export default function ChoresPage() {
   const { profile } = useAuth()
   const [mutationError, setMutationError] = useState<string | null>(null)
   const [choreToDelete, setChoreToDelete] = useState<Chore | null>(null)
+  const [pendingWarningChoreId, setPendingWarningChoreId] = useState<string | null>(null)
 
   const activeChores = chores.filter(c => c.status === 'active')
   const pendingChores = chores.filter(c => c.status === 'pending_approval')
@@ -66,11 +67,44 @@ export default function ChoresPage() {
     if (error) { setMutationError('שגיאה בדחיית ההצעה') } else { refetch() }
   }
 
-  async function deleteChore(chore: Chore) {
+  async function handleDeleteClick(chore: Chore) {
     setMutationError(null)
-    const { error } = await supabase.from('chores').update({ status: 'deleted' }).eq('id', chore.id)
+    setPendingWarningChoreId(null)
+    // UX hint only — server enforces this rule regardless
+    const { data: assignments } = await supabase
+      .from('chore_assignments')
+      .select('id')
+      .eq('chore_id', chore.id)
+    const ids = ((assignments ?? []) as { id: string }[]).map(a => a.id)
+    if (ids.length > 0) {
+      const { data: pending } = await supabase
+        .from('chore_completions')
+        .select('id')
+        .in('chore_assignment_id', ids)
+        .eq('status', 'pending')
+        .limit(1)
+      if (((pending ?? []) as unknown[]).length > 0) {
+        setPendingWarningChoreId(chore.id)
+        return
+      }
+    }
+    setChoreToDelete(chore)
+  }
+
+  async function confirmDeleteChore(chore: Chore) {
+    setMutationError(null)
+    const { error } = await supabase.rpc('delete_chore', { p_chore_id: chore.id })
     if (error) {
-      setMutationError('שגיאה במחיקת המשימה')
+      const msg = error.message ?? ''
+      if (msg.includes('PENDING_COMPLETIONS')) {
+        setMutationError('לא ניתן למחוק - ישנה משימה הדורשת אישור או דחייה')
+      } else if (msg.includes('INVALID_STATUS')) {
+        setMutationError('לא ניתן למחוק משימה בסטטוס זה')
+      } else if (msg.includes('UNAUTHORIZED')) {
+        setMutationError('אין הרשאה למחוק משימה זו')
+      } else {
+        setMutationError('שגיאה במחיקת המשימה')
+      }
     } else {
       setChoreToDelete(null)
       refetch()
@@ -98,7 +132,7 @@ export default function ChoresPage() {
         </Button>
       </div>
 
-      {mutationError && (
+      {mutationError && !choreToDelete && (
         <p role="alert" className="text-sm text-destructive">{mutationError}</p>
       )}
 
@@ -156,11 +190,16 @@ export default function ChoresPage() {
                     <Button size="sm" variant="outline" onClick={() => archiveChore(chore)}>
                       ארכיון
                     </Button>
-                    <Button size="sm" variant="destructive" onClick={() => setChoreToDelete(chore)}>
+                    <Button size="sm" variant="destructive" onClick={() => handleDeleteClick(chore)}>
                       מחק
                     </Button>
                   </div>
                 </div>
+                {pendingWarningChoreId === chore.id && (
+                  <p role="alert" className="text-xs text-destructive mt-1">
+                    לא ניתן למחוק - ישנה משימה הדורשת אישור או דחייה
+                  </p>
+                )}
               </div>
             ))
           )}
@@ -182,7 +221,7 @@ export default function ChoresPage() {
             <Button variant="outline" onClick={() => setChoreToDelete(null)}>ביטול</Button>
             <Button
               variant="destructive"
-              onClick={() => { if (choreToDelete) deleteChore(choreToDelete) }}
+              onClick={() => { if (choreToDelete) confirmDeleteChore(choreToDelete) }}
             >
               מחק
             </Button>

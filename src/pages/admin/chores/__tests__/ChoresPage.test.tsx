@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
 import '../../../../test/mocks/supabase'
-import { mockFrom } from '../../../../test/mocks/supabase'
+import { mockFrom, mockRpc } from '../../../../test/mocks/supabase'
 
 const mockRefetch = vi.fn()
 
@@ -128,50 +128,159 @@ describe('ChoresPage', () => {
     expect(screen.getByRole('button', { name: 'מחק' })).toBeInTheDocument()
   })
 
-  it('clicking delete button opens confirmation dialog with chore title', async () => {
+  it('delete button click with no pending completions opens dialog', async () => {
     mockUseChores.mockReturnValue({ chores: [activeChore], loading: false, error: null, refetch: mockRefetch })
+    mockFrom.mockReturnValue({
+      select: vi.fn().mockReturnValue({
+        eq: vi.fn().mockResolvedValue({ data: [], error: null }),
+      }),
+    })
     renderChoresPage()
     await userEvent.click(screen.getByRole('button', { name: 'מחק' }))
-    expect(screen.getByRole('dialog')).toBeInTheDocument()
-    expect(within(screen.getByRole('dialog')).getByText(/כלי מטבח/)).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.getByRole('dialog')).toBeInTheDocument()
+      expect(within(screen.getByRole('dialog')).getByText(/כלי מטבח/)).toBeInTheDocument()
+    })
   })
 
-  it('confirming delete calls supabase update with status deleted and refetches', async () => {
+  it('delete button click with pending completion shows warning and does not open dialog', async () => {
     mockUseChores.mockReturnValue({ chores: [activeChore], loading: false, error: null, refetch: mockRefetch })
-    const mockEq = vi.fn().mockResolvedValue({ error: null })
-    const mockUpdate = vi.fn().mockReturnValue({ eq: mockEq })
-    mockFrom.mockReturnValue({ update: mockUpdate })
-
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'chore_assignments') {
+        return {
+          select: vi.fn().mockReturnValue({
+            eq: vi.fn().mockResolvedValue({ data: [{ id: 'ca1' }], error: null }),
+          }),
+        }
+      }
+      return {
+        select: vi.fn().mockReturnValue({
+          in: vi.fn().mockReturnValue({
+            eq: vi.fn().mockReturnValue({
+              limit: vi.fn().mockResolvedValue({ data: [{ id: 'cc1' }], error: null }),
+            }),
+          }),
+        }),
+      }
+    })
     renderChoresPage()
     await userEvent.click(screen.getByRole('button', { name: 'מחק' }))
-    await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'מחק' }))
-
     await waitFor(() => {
-      expect(mockUpdate).toHaveBeenCalledWith({ status: 'deleted' })
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        'לא ניתן למחוק - ישנה משימה הדורשת אישור או דחייה'
+      )
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    })
+  })
+
+  it('confirming delete calls rpc delete_chore and refetches', async () => {
+    mockUseChores.mockReturnValue({ chores: [activeChore], loading: false, error: null, refetch: mockRefetch })
+    mockFrom.mockReturnValue({
+      select: vi.fn().mockReturnValue({
+        eq: vi.fn().mockResolvedValue({ data: [], error: null }),
+      }),
+    })
+    mockRpc.mockResolvedValue({ error: null })
+    renderChoresPage()
+    await userEvent.click(screen.getByRole('button', { name: 'מחק' }))
+    await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument())
+    await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'מחק' }))
+    await waitFor(() => {
+      expect(mockRpc).toHaveBeenCalledWith('delete_chore', { p_chore_id: 'c1' })
       expect(mockRefetch).toHaveBeenCalled()
     })
   })
 
-  it('cancelling dialog does not call supabase update', async () => {
+  it('cancelling dialog does not call rpc', async () => {
     mockUseChores.mockReturnValue({ chores: [activeChore], loading: false, error: null, refetch: mockRefetch })
+    mockFrom.mockReturnValue({
+      select: vi.fn().mockReturnValue({
+        eq: vi.fn().mockResolvedValue({ data: [], error: null }),
+      }),
+    })
     renderChoresPage()
     await userEvent.click(screen.getByRole('button', { name: 'מחק' }))
+    await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument())
     await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'ביטול' }))
-    expect(mockFrom).not.toHaveBeenCalled()
+    expect(mockRpc).not.toHaveBeenCalled()
   })
 
-  it('shows error alert when delete mutation fails', async () => {
+  it('rpc PENDING_COMPLETIONS error shows correct message in dialog', async () => {
     mockUseChores.mockReturnValue({ chores: [activeChore], loading: false, error: null, refetch: mockRefetch })
-    const mockEq = vi.fn().mockResolvedValue({ error: { message: 'RLS denied' } })
-    const mockUpdate = vi.fn().mockReturnValue({ eq: mockEq })
-    mockFrom.mockReturnValue({ update: mockUpdate })
-
+    mockFrom.mockReturnValue({
+      select: vi.fn().mockReturnValue({
+        eq: vi.fn().mockResolvedValue({ data: [], error: null }),
+      }),
+    })
+    mockRpc.mockResolvedValue({ error: { message: 'PENDING_COMPLETIONS' } })
     renderChoresPage()
     await userEvent.click(screen.getByRole('button', { name: 'מחק' }))
+    await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument())
     await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'מחק' }))
-
     await waitFor(() => {
-      expect(within(screen.getByRole('dialog')).getByRole('alert')).toHaveTextContent('שגיאה במחיקת המשימה')
+      expect(within(screen.getByRole('dialog')).getByRole('alert')).toHaveTextContent(
+        'לא ניתן למחוק - ישנה משימה הדורשת אישור או דחייה'
+      )
+      expect(mockRefetch).not.toHaveBeenCalled()
+    })
+  })
+
+  it('rpc INVALID_STATUS error shows correct message in dialog', async () => {
+    mockUseChores.mockReturnValue({ chores: [activeChore], loading: false, error: null, refetch: mockRefetch })
+    mockFrom.mockReturnValue({
+      select: vi.fn().mockReturnValue({
+        eq: vi.fn().mockResolvedValue({ data: [], error: null }),
+      }),
+    })
+    mockRpc.mockResolvedValue({ error: { message: 'INVALID_STATUS' } })
+    renderChoresPage()
+    await userEvent.click(screen.getByRole('button', { name: 'מחק' }))
+    await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument())
+    await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'מחק' }))
+    await waitFor(() => {
+      expect(within(screen.getByRole('dialog')).getByRole('alert')).toHaveTextContent(
+        'לא ניתן למחוק משימה בסטטוס זה'
+      )
+      expect(mockRefetch).not.toHaveBeenCalled()
+    })
+  })
+
+  it('rpc UNAUTHORIZED error shows correct message in dialog', async () => {
+    mockUseChores.mockReturnValue({ chores: [activeChore], loading: false, error: null, refetch: mockRefetch })
+    mockFrom.mockReturnValue({
+      select: vi.fn().mockReturnValue({
+        eq: vi.fn().mockResolvedValue({ data: [], error: null }),
+      }),
+    })
+    mockRpc.mockResolvedValue({ error: { message: 'UNAUTHORIZED' } })
+    renderChoresPage()
+    await userEvent.click(screen.getByRole('button', { name: 'מחק' }))
+    await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument())
+    await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'מחק' }))
+    await waitFor(() => {
+      expect(within(screen.getByRole('dialog')).getByRole('alert')).toHaveTextContent(
+        'אין הרשאה למחוק משימה זו'
+      )
+      expect(mockRefetch).not.toHaveBeenCalled()
+    })
+  })
+
+  it('rpc generic error shows fallback message in dialog', async () => {
+    mockUseChores.mockReturnValue({ chores: [activeChore], loading: false, error: null, refetch: mockRefetch })
+    mockFrom.mockReturnValue({
+      select: vi.fn().mockReturnValue({
+        eq: vi.fn().mockResolvedValue({ data: [], error: null }),
+      }),
+    })
+    mockRpc.mockResolvedValue({ error: { message: 'unexpected db error' } })
+    renderChoresPage()
+    await userEvent.click(screen.getByRole('button', { name: 'מחק' }))
+    await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument())
+    await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'מחק' }))
+    await waitFor(() => {
+      expect(within(screen.getByRole('dialog')).getByRole('alert')).toHaveTextContent(
+        'שגיאה במחיקת המשימה'
+      )
       expect(mockRefetch).not.toHaveBeenCalled()
     })
   })
