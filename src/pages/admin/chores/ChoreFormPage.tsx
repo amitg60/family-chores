@@ -206,7 +206,7 @@ export default function ChoreFormPage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="none">בריכה פתוחה (כולם)</SelectItem>
+                    <SelectItem value="none">מאגר משימות פתוח (כולם)</SelectItem>
                     {members.map(m => (
                       <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
                     ))}

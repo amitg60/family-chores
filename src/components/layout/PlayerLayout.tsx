@@ -17,7 +17,7 @@ import AliasVoteBanner from '../shared/AliasVoteBanner'
 
 const playerNavItems = [
   { to: '/player', label: 'דשבורד', icon: Home, end: true },
-  { to: '/player/pool', label: 'בריכה', icon: List },
+  { to: '/player/pool', label: 'מאגר משימות', icon: List },
   { to: '/player/store', label: 'החנות', icon: ShoppingBag },
   { to: '/player/calendar', label: 'לוח שבועי', icon: CalendarDays },
   { to: '/player/feedback', label: 'משוב', icon: MessageSquare },
