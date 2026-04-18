@@ -129,6 +129,7 @@ Deno.serve(async (req) => {
   }
 
   const parsed = await validateToken(token, webhookSecret)
+  console.log(`[DEBUG] token_len=${token.length} secret_len=${webhookSecret.length} parsed=${parsed !== null}`)
   if (!parsed) {
     return terminalPage(appUrl)
   }
