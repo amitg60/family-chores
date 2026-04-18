@@ -4,15 +4,28 @@ spec:
   status: approved
 
 overview: >
-  When an admin deletes a chore from the pool, the deletion cascades to remove
-  all active assignments and calendar entries for every player. The task pool
+  When an admin deletes a chore from the pool, the deletion cascades to archive
+  all active assignments for every player. Calendar entries are not physically
+  deleted or separately removed — they are part of chore_assignments, so
+  archiving assignments is what hides them from calendar views. The task pool
   is already clean (useChores excludes deleted chores). This spec covers
-  assignments, calendars, notifications, and security enforcement.
+  assignments, calendar visibility, notifications, and security enforcement.
+
+soft_delete_clarification: >
+  This is a soft delete. No rows are physically removed. The chore row remains
+  with status = 'deleted'. Affected chore_assignments remain with archived = true.
+  All referential integrity (completions, coin transactions) is preserved.
+  The operation is not recoverable from the UI, but data is not destroyed.
+
+calendar_entries: >
+  Calendar entries are columns on chore_assignments (calendar_day, calendar_slot).
+  They are not a separate table. Archiving the assignment (archived = true) is
+  sufficient to hide it from useCalendarAssignments, which already filters
+  archived = false. No separate delete or nulling of calendar columns is needed.
 
 out_of_scope:
   - Coin balance changes on deletion
   - Bulk delete
-  - Delete on archived or pending_approval chores
   - Realtime push to connected players (next page load is sufficient)
 
 database:
@@ -23,34 +36,85 @@ database:
     signature: delete_chore(p_chore_id uuid)
     security: INVOKER
     description: >
-      Runs as the calling user so RLS stays active on all underlying tables.
-      Executes all steps inside a single transaction — no partial state possible.
+      The RPC is the sole enforcement point for all business rules. The UI
+      pre-check is a UX hint only and provides no security guarantee. The RPC
+      runs as the calling user so RLS stays active on all underlying tables.
+      All steps execute inside a single transaction — if any step fails
+      (including notification insertion), the entire transaction rolls back.
+      No partial state is possible.
+
+    authorization:
+      check: >
+        SELECT family_id FROM chores WHERE id = p_chore_id
+        must equal
+        SELECT family_id FROM profiles WHERE id = auth.uid()
+      strict: >
+        Both values must be non-null and equal. A null family_id on either side
+        is treated as unauthorized. This prevents cross-family access and
+        unauthenticated calls.
+      on_fail: "Raises SQLSTATE 'P0001' message 'UNAUTHORIZED'"
+
     steps:
-      1: >
-        Verify the chore belongs to the caller's family (join chores → profiles).
-        Raises SQLSTATE 'P0001' with message 'UNAUTHORIZED' if not.
-      2: >
+      1_family_scope_check: >
+        Fetch chore.family_id. Fetch caller's family_id from profiles where
+        id = auth.uid(). Both must be non-null and equal. Raises 'UNAUTHORIZED'
+        if not. This is the strict, non-leaky family authorization gate.
+      2_status_validation: >
+        Chore must have status = 'active'. Raises 'INVALID_STATUS' if the chore
+        is already 'deleted' (idempotency — treat as no-op by returning early,
+        not raising), 'archived' (not deletable, must be unarchived first), or
+        'pending_approval' (not deletable, must be approved or rejected first).
+        Early return on already-deleted prevents double-processing.
+      3_pending_completion_check: >
         Check for any chore_completions.status = 'pending' linked to this chore
-        via chore_assignments. Raises SQLSTATE 'P0001' with message
-        'PENDING_COMPLETIONS' if found.
-      3: >
-        Set archived = true on all chore_assignments for this chore where
-        status != 'completed'.
-      4: >
-        Insert a notification (type = 'chore_deleted') into the notifications
-        table for each affected assignment where reminder_enabled = true.
-      5: >
-        Set chores.status = 'deleted'.
+        via chore_assignments. Raises 'PENDING_COMPLETIONS' if found.
+        This is the server-side re-check — the UI hint does not replace this.
+      4_archive_assignments: >
+        SET archived = true on all chore_assignments for this chore where
+        status != 'completed'. Returns the list of affected assignment IDs
+        and their reminder_enabled flags for use in step 5.
+      5_insert_notifications: >
+        For each assignment from step 4 where reminder_enabled = true, insert
+        one row into notifications (type = 'chore_deleted'). If this INSERT
+        fails for any row, the transaction rolls back entirely — notifications
+        and assignment archiving are all-or-nothing with the chore deletion.
+      6_soft_delete_chore: >
+        UPDATE chores SET status = 'deleted' WHERE id = p_chore_id.
+
+    idempotency: >
+      If the chore is already status = 'deleted' when the RPC is called, the
+      function returns without error and without taking any action. Assignments
+      were already archived in the original call. Calling delete_chore twice
+      on the same chore is safe.
+
+  rls_coverage:
+    chores: >
+      Existing policy — admins can UPDATE chores within their own family.
+      SECURITY INVOKER means this policy applies to the RPC caller, not a
+      privileged role. Direct UPDATE attempts from non-admins are blocked.
+    chore_assignments: >
+      Existing policy — admins can UPDATE assignments within their family.
+      The RPC archives assignments via UPDATE, covered by this policy.
+    notifications: >
+      Existing policy — users can INSERT notifications for members of their
+      family. The RPC inserts on behalf of the admin, covered by this policy.
+    bypass_paths: >
+      There is no SECURITY DEFINER escalation. All table operations go through
+      RLS as the calling user. A direct REST/PostgREST call to UPDATE chores
+      bypassing the RPC will hit the BEFORE UPDATE trigger as a secondary guard.
 
   trigger:
-    name: trg_chore_deleted
+    name: trg_chore_deleted_guard
     type: BEFORE UPDATE ON chores
     search_path: "public, pg_catalog"
     fires_when: "NEW.status = 'deleted' AND OLD.status != 'deleted'"
     description: >
-      Last-line-of-defence guard. Re-checks for pending completions and raises
-      an exception if found, even if the caller bypassed the RPC and updated
-      the table directly. Prevents any partial or malicious direct-update abuse.
+      Secondary guard only — not the primary enforcement point. Catches direct
+      table UPDATE calls that bypass the RPC (e.g. direct PostgREST or service
+      role misuse). Re-checks for pending completions and raises an exception
+      if found. Does not cascade assignments — that is the RPC's responsibility.
+      SET search_path prevents schema injection. Fires only on actual status
+      transition to 'deleted', never on unrelated chore updates.
 
 types:
   file: src/types/database.ts
@@ -59,8 +123,12 @@ types:
 
 frontend:
   file: src/pages/admin/chores/ChoresPage.tsx
+  note: >
+    The UI pre-check is a UX hint only. It gives the admin fast feedback
+    without a round trip to the RPC. The server enforces all rules regardless
+    of whether the UI check runs or is bypassed.
 
-  pre_delete_check:
+  pre_delete_hint:
     trigger: admin clicks Delete button (before dialog opens)
     action: >
       Query chore_completions joined through chore_assignments for
@@ -79,13 +147,14 @@ frontend:
     on_error:
       error_map:
         PENDING_COMPLETIONS: "לא ניתן למחוק - ישנה משימה הדורשת אישור או דחייה"
+        INVALID_STATUS: "לא ניתן למחוק משימה בסטטוס זה"
         UNAUTHORIZED: "אין הרשאה למחוק משימה זו"
         generic: "שגיאה במחיקת המשימה"
 
   no_hook_changes_required: >
     useChoreAssignments and useCalendarAssignments both filter archived = false.
     Once the RPC archives assignments, they disappear from player dashboards
-    and calendars on next fetch automatically.
+    and calendars on next fetch automatically. No query changes needed.
 
 propagation:
   mechanism: next page load / manual refetch
@@ -94,25 +163,29 @@ propagation:
     Both hooks are one-time fetches with no Supabase realtime subscription.
     Players see the deleted task disappear on their next navigation or reload.
 
-security:
-  rpc_layer:
-    - Family-scope check prevents cross-family chore deletion
-    - Pending completion check enforced server-side (cannot be bypassed via UI)
-    - SECURITY INVOKER keeps RLS active on all table operations
-  trigger_layer:
-    - BEFORE UPDATE guard re-validates even on direct table updates
-    - SET search_path prevents schema injection attacks
-    - Fires only on actual status transition to 'deleted' (idempotent guard)
-  ui_layer:
-    - Pre-delete check is a UX gate only (fast feedback for the admin)
-    - Server is the real enforcement layer
+security_summary:
+  enforcement_hierarchy:
+    primary: RPC function (sole business logic enforcement point)
+    secondary: BEFORE UPDATE trigger (direct bypass guard)
+    ui: Pre-check hint (UX only, no security value)
+  rpc_guarantees:
+    - Family-scope authorization is strict and null-safe
+    - Pending completion check is server-side and inside the transaction
+    - Status validation blocks deletion of archived and pending_approval chores
+    - Already-deleted chores are handled idempotently
+    - Notification failure rolls back the entire transaction
+    - SECURITY INVOKER keeps RLS active — no privilege escalation
+  trigger_guarantees:
+    - SET search_path prevents schema injection
+    - Fires only on 'deleted' transition, not on every chore update
+    - Cannot be bypassed by direct table writes
 
 files_changed:
   - path: supabase/migrations/018_cascade_delete_chore.sql
-    change: New — RPC function + BEFORE UPDATE trigger
+    change: New — delete_chore RPC + trg_chore_deleted_guard trigger
   - path: src/types/database.ts
     change: Add 'chore_deleted' to NotificationType
   - path: src/pages/admin/chores/ChoresPage.tsx
-    change: Replace deleteChore with pre-check + RPC call + error mapping
+    change: Replace deleteChore with UX hint + RPC call + full error mapping
   - path: src/pages/admin/chores/__tests__/ChoresPage.test.tsx
-    change: Update delete tests to cover pre-check warning and RPC error cases
+    change: Update delete tests — RPC call, all error codes, UX hint behaviour
