@@ -203,6 +203,7 @@ describe('ChoresPage', () => {
     await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument())
     await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'ביטול' }))
     expect(mockRpc).not.toHaveBeenCalled()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
   it('rpc PENDING_COMPLETIONS error shows correct message in dialog', async () => {

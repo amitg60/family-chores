@@ -71,19 +71,21 @@ export default function ChoresPage() {
     setMutationError(null)
     setPendingWarningChoreId(null)
     // UX hint only — server enforces this rule regardless
-    const { data: assignments } = await supabase
+    const { data: assignments, error: assignmentsError } = await supabase
       .from('chore_assignments')
       .select('id')
       .eq('chore_id', chore.id)
-    const ids = ((assignments ?? []) as { id: string }[]).map(a => a.id)
+    if (assignmentsError) { setMutationError('שגיאה בבדיקת המשימה'); return }
+    const ids = (assignments ?? []).map(a => a.id)
     if (ids.length > 0) {
-      const { data: pending } = await supabase
+      const { data: pending, error: pendingError } = await supabase
         .from('chore_completions')
         .select('id')
         .in('chore_assignment_id', ids)
         .eq('status', 'pending')
         .limit(1)
-      if (((pending ?? []) as unknown[]).length > 0) {
+      if (pendingError) { setMutationError('שגיאה בבדיקת המשימה'); return }
+      if ((pending ?? []).length > 0) {
         setPendingWarningChoreId(chore.id)
         return
       }
@@ -206,7 +208,7 @@ export default function ChoresPage() {
         </CardContent>
       </Card>
 
-      <Dialog open={choreToDelete !== null} onOpenChange={(open) => { if (!open) setChoreToDelete(null) }}>
+      <Dialog open={choreToDelete !== null} onOpenChange={(open) => { if (!open) { setChoreToDelete(null); setPendingWarningChoreId(null) } }}>
         <DialogContent dir="rtl">
           <DialogHeader>
             <DialogTitle>מחיקת משימה</DialogTitle>
