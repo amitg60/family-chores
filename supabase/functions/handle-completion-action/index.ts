@@ -1,12 +1,6 @@
 // supabase/functions/handle-completion-action/index.ts
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
-function toB64url(bytes: Uint8Array): string {
-  let binary = ''
-  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i])
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '')
-}
-
 function fromB64url(s: string): Uint8Array {
   const padded = s.replace(/-/g, '+').replace(/_/g, '/')
     .padEnd(Math.ceil(s.length / 4) * 4, '=')
@@ -41,106 +35,46 @@ async function validateToken(
   }
 }
 
-function htmlResponse(html: string, status = 200): Response {
-  return new Response(new Blob([html], { type: 'text/html; charset=utf-8' }), {
-    status,
-    headers: { 'Cache-Control': 'no-store, max-age=0' },
-  })
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type',
 }
 
-const PLAIN_HEADERS = { 'Content-Type': 'text/plain; charset=utf-8' }
-
-function htmlPage(body: string): string {
-  return `<!DOCTYPE html>
-<html dir="rtl" lang="he">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>ביצוע פעולה</title>
-</head>
-<body style="font-family:sans-serif;direction:rtl;text-align:right;padding:32px;max-width:480px;margin:40px auto;">
-  ${body}
-</body>
-</html>`
-}
-
-function terminalPage(appUrl: string): Response {
-  const link = appUrl
-    ? `<a href="${appUrl}" style="color:#6366f1;text-decoration:underline;">פתח את האפליקציה</a>`
-    : 'אנא פתח את האפליקציה'
-  return htmlResponse(htmlPage(`<p style="font-size:1.2rem;color:#374151;">⚠️ לא ניתן לבצע את הפעולה. ${link}</p>`))
-}
-
-function alreadyActionedPage(): Response {
-  return htmlResponse(htmlPage(`<p style="font-size:1.2rem;color:#374151;">ℹ️ הגשה זו כבר טופלה.</p>`))
-}
-
-function confirmationPage(token: string, action: string): Response {
-  const isApprove = action === 'approve'
-  const heading = isApprove
-    ? 'אתה עומד לאשר את ההגשה.'
-    : 'אתה עומד לדחות את ההגשה.'
-  const btnLabel = isApprove ? 'אשר' : 'דחה'
-  const btnColor = isApprove ? '#22c55e' : '#ef4444'
-  const encodedToken = encodeURIComponent(token)
-  return htmlResponse(htmlPage(`
-      <h2 style="color:#1e1b4b;margin:0 0 24px 0;">${heading}</h2>
-      <button id="btn" onclick="confirm()"
-              style="background:${btnColor};color:white;padding:14px 28px;border:none;border-radius:8px;font-size:1.1rem;font-weight:bold;cursor:pointer;min-height:44px;min-width:44px;">
-        ${btnLabel}
-      </button>
-      <script>
-        async function confirm() {
-          const btn = document.getElementById('btn');
-          btn.disabled = true;
-          const res = await fetch('?token=${encodedToken}', { method: 'POST' });
-          const html = await res.text();
-          document.open(); document.write(html); document.close();
-        }
-      </script>
-    `))
-}
-
-function successPage(action: string): Response {
-  const msg = action === 'approve'
-    ? '✅ ההגשה אושרה בהצלחה. השחקן יקבל את המטבעות.'
-    : '❌ ההגשה נדחתה.'
-  return htmlResponse(htmlPage(`<p style="font-size:1.2rem;color:#374151;">${msg}</p>`))
+const JSON_HEADERS = {
+  'Content-Type': 'application/json',
+  'Access-Control-Allow-Origin': '*',
+  'Cache-Control': 'no-store, max-age=0',
 }
 
 Deno.serve(async (req) => {
-  console.log(`[DEBUG] method=${req.method}`)
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { headers: CORS_HEADERS })
+  }
+
   const url = new URL(req.url)
   const token = url.searchParams.get('token')
 
   if (!token) {
-    return new Response('missing token', { status: 400, headers: PLAIN_HEADERS })
+    return new Response(JSON.stringify({ error: 'missing_token' }), { status: 400, headers: JSON_HEADERS })
   }
 
   const webhookSecret = Deno.env.get('WEBHOOK_SECRET')
   const supabaseUrl = Deno.env.get('SUPABASE_URL')
   const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
-  const appUrl = Deno.env.get('APP_URL') ?? ''
 
   if (!webhookSecret || !supabaseUrl || !supabaseServiceKey) {
-    console.error('[INFRA] missing env: WEBHOOK_SECRET or SUPABASE_SERVICE_ROLE_KEY')
-    return terminalPage(appUrl)
+    console.error('[INFRA] missing env vars')
+    return new Response(JSON.stringify({ error: 'server_error' }), { status: 500, headers: JSON_HEADERS })
   }
 
   const parsed = await validateToken(token, webhookSecret)
-  console.log(`[DEBUG] token_len=${token.length} secret_len=${webhookSecret.length} parsed=${parsed !== null}`)
   if (!parsed) {
-    return terminalPage(appUrl)
+    return new Response(JSON.stringify({ error: 'invalid_token' }), { status: 401, headers: JSON_HEADERS })
   }
-  const { completionId, action, adminId } = parsed
 
-  let supabase
-  try {
-    supabase = createClient(supabaseUrl, supabaseServiceKey)
-  } catch (err) {
-    console.error(`[INFRA] completionId=${completionId} intended_recipient_id=${adminId} client creation failed: ${err}`)
-    return terminalPage(appUrl)
-  }
+  const { completionId, action, adminId } = parsed
+  const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
   if (req.method === 'GET') {
     const { data: completion, error: statusError } = await supabase
@@ -150,15 +84,15 @@ Deno.serve(async (req) => {
       .single()
 
     if (statusError) {
-      console.error(`[INFRA] completionId=${completionId} intended_recipient_id=${adminId} status check failed: ${statusError.message}`)
-      return terminalPage(appUrl)
+      console.error(`[INFRA] completionId=${completionId} status check failed: ${statusError.message}`)
+      return new Response(JSON.stringify({ error: 'server_error' }), { status: 500, headers: JSON_HEADERS })
     }
 
     if (!completion || completion.status !== 'pending') {
-      return alreadyActionedPage()
+      return new Response(JSON.stringify({ status: 'already_actioned' }), { headers: JSON_HEADERS })
     }
 
-    return confirmationPage(token, action)
+    return new Response(JSON.stringify({ status: 'pending', action }), { headers: JSON_HEADERS })
   }
 
   if (req.method === 'POST') {
@@ -173,14 +107,14 @@ Deno.serve(async (req) => {
 
     if (rpcError) {
       if (rpcError.message.includes('not pending')) {
-        return alreadyActionedPage()
+        return new Response(JSON.stringify({ error: 'already_actioned' }), { headers: JSON_HEADERS })
       }
-      console.error(`[INFRA] completionId=${completionId} intended_recipient_id=${adminId} action=${action} rpc failed: ${rpcError.message}`)
-      return terminalPage(appUrl)
+      console.error(`[INFRA] completionId=${completionId} action=${action} rpc failed: ${rpcError.message}`)
+      return new Response(JSON.stringify({ error: 'server_error' }), { status: 500, headers: JSON_HEADERS })
     }
 
-    return successPage(action)
+    return new Response(JSON.stringify({ success: true, action }), { headers: JSON_HEADERS })
   }
 
-  return new Response('Method not allowed', { status: 405, headers: PLAIN_HEADERS })
+  return new Response(JSON.stringify({ error: 'method_not_allowed' }), { status: 405, headers: JSON_HEADERS })
 })
