@@ -86,7 +86,9 @@ Deno.serve(async (req) => {
   }
 
   const webhookSecret = req.headers.get('x-webhook-secret') ?? ''
-  if (!timingSafeEqual(webhookSecret, Deno.env.get('WEBHOOK_SECRET') ?? '')) {
+  const envSecret = Deno.env.get('WEBHOOK_SECRET') ?? ''
+  console.log(`[DEBUG] header_len=${webhookSecret.length} env_len=${envSecret.length} match=${timingSafeEqual(webhookSecret, envSecret)}`)
+  if (!timingSafeEqual(webhookSecret, envSecret)) {
     return new Response('Unauthorized', { status: 401 })
   }
 
