@@ -169,11 +169,20 @@ Deno.serve(async (req) => {
     return new Response('Failed to fetch admins', { status: 500 })
   }
 
+  console.log(`[notify] family=${profile.family_id} admins_found=${admins?.length ?? 0} ids=${JSON.stringify(admins?.map(a => a.id))}`)
+
   await Promise.all(
     (admins ?? []).map(async (admin) => {
       try {
         const { data: authData, error: authError } = await supabase.auth.admin.getUserById(admin.id)
-        if (authError || !authData?.user?.email) return
+        if (authError) {
+          console.error(`[notify] getUserById failed for admin ${admin.id}:`, authError.message)
+          return
+        }
+        if (!authData?.user?.email) {
+          console.error(`[notify] no email for admin ${admin.id}`)
+          return
+        }
         const adminEmail = authData.user.email
 
         // Each admin gets unique tokens embedding their profile ID
