@@ -25,6 +25,7 @@ async function validateToken(
     const payload = new TextDecoder().decode(payloadBytes)
     const [completionId, action, adminId, expiryStr] = payload.split(':')
     if (!completionId || !action || !adminId || !expiryStr) return null
+    if (action !== 'approve' && action !== 'reject') return null
     if (Math.floor(Date.now() / 1000) > parseInt(expiryStr, 10)) return null
     const key = await crypto.subtle.importKey(
       'raw', enc.encode(secret),
@@ -114,7 +115,7 @@ Deno.serve(async (req) => {
   const token = url.searchParams.get('token')
 
   if (!token) {
-    return new Response('missing token', { status: 400, headers: BASE_HEADERS })
+    return new Response('missing token', { status: 400, headers: { 'Content-Type': 'text/plain; charset=utf-8' } })
   }
 
   const webhookSecret = Deno.env.get('WEBHOOK_SECRET')
@@ -133,15 +134,15 @@ Deno.serve(async (req) => {
   }
   const { completionId, action, adminId } = parsed
 
-  if (req.method === 'GET') {
-    let supabase
-    try {
-      supabase = createClient(supabaseUrl, supabaseServiceKey)
-    } catch (err) {
-      console.error(`[INFRA] completionId=${completionId} intended_recipient_id=${adminId} client creation failed: ${err}`)
-      return terminalPage(appUrl)
-    }
+  let supabase
+  try {
+    supabase = createClient(supabaseUrl, supabaseServiceKey)
+  } catch (err) {
+    console.error(`[INFRA] completionId=${completionId} intended_recipient_id=${adminId} client creation failed: ${err}`)
+    return terminalPage(appUrl)
+  }
 
+  if (req.method === 'GET') {
     const { data: completion, error: statusError } = await supabase
       .from('chore_completions')
       .select('status')
@@ -162,14 +163,6 @@ Deno.serve(async (req) => {
 
   if (req.method === 'POST') {
     console.log(`[EMAIL-ACTION] completionId=${completionId} action=${action} intended_recipient_id=${adminId}`)
-
-    let supabase
-    try {
-      supabase = createClient(supabaseUrl, supabaseServiceKey)
-    } catch (err) {
-      console.error(`[INFRA] completionId=${completionId} intended_recipient_id=${adminId} client creation failed: ${err}`)
-      return terminalPage(appUrl)
-    }
 
     const rpcName = action === 'approve' ? 'email_approve_completion' : 'email_reject_completion'
     const rpcArgs = action === 'approve'
