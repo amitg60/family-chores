@@ -1,0 +1,118 @@
+spec:
+  title: Cascade Delete Chore
+  date: 2026-04-18
+  status: approved
+
+overview: >
+  When an admin deletes a chore from the pool, the deletion cascades to remove
+  all active assignments and calendar entries for every player. The task pool
+  is already clean (useChores excludes deleted chores). This spec covers
+  assignments, calendars, notifications, and security enforcement.
+
+out_of_scope:
+  - Coin balance changes on deletion
+  - Bulk delete
+  - Delete on archived or pending_approval chores
+  - Realtime push to connected players (next page load is sufficient)
+
+database:
+  migration: supabase/migrations/018_cascade_delete_chore.sql
+
+  rpc:
+    name: delete_chore
+    signature: delete_chore(p_chore_id uuid)
+    security: INVOKER
+    description: >
+      Runs as the calling user so RLS stays active on all underlying tables.
+      Executes all steps inside a single transaction — no partial state possible.
+    steps:
+      1: >
+        Verify the chore belongs to the caller's family (join chores → profiles).
+        Raises SQLSTATE 'P0001' with message 'UNAUTHORIZED' if not.
+      2: >
+        Check for any chore_completions.status = 'pending' linked to this chore
+        via chore_assignments. Raises SQLSTATE 'P0001' with message
+        'PENDING_COMPLETIONS' if found.
+      3: >
+        Set archived = true on all chore_assignments for this chore where
+        status != 'completed'.
+      4: >
+        Insert a notification (type = 'chore_deleted') into the notifications
+        table for each affected assignment where reminder_enabled = true.
+      5: >
+        Set chores.status = 'deleted'.
+
+  trigger:
+    name: trg_chore_deleted
+    type: BEFORE UPDATE ON chores
+    search_path: "public, pg_catalog"
+    fires_when: "NEW.status = 'deleted' AND OLD.status != 'deleted'"
+    description: >
+      Last-line-of-defence guard. Re-checks for pending completions and raises
+      an exception if found, even if the caller bypassed the RPC and updated
+      the table directly. Prevents any partial or malicious direct-update abuse.
+
+types:
+  file: src/types/database.ts
+  changes:
+    - Add 'chore_deleted' to NotificationType union
+
+frontend:
+  file: src/pages/admin/chores/ChoresPage.tsx
+
+  pre_delete_check:
+    trigger: admin clicks Delete button (before dialog opens)
+    action: >
+      Query chore_completions joined through chore_assignments for
+      status = 'pending' on this chore.
+    on_found:
+      show_inline_warning: "לא ניתן למחוק - ישנה משימה הדורשת אישור או דחייה"
+      dialog_does_not_open: true
+    on_clear:
+      open_confirmation_dialog: true
+
+  delete_function:
+    call: "supabase.rpc('delete_chore', { p_chore_id: chore.id })"
+    on_success:
+      - close dialog
+      - refetch()
+    on_error:
+      error_map:
+        PENDING_COMPLETIONS: "לא ניתן למחוק - ישנה משימה הדורשת אישור או דחייה"
+        UNAUTHORIZED: "אין הרשאה למחוק משימה זו"
+        generic: "שגיאה במחיקת המשימה"
+
+  no_hook_changes_required: >
+    useChoreAssignments and useCalendarAssignments both filter archived = false.
+    Once the RPC archives assignments, they disappear from player dashboards
+    and calendars on next fetch automatically.
+
+propagation:
+  mechanism: next page load / manual refetch
+  realtime_push: false
+  rationale: >
+    Both hooks are one-time fetches with no Supabase realtime subscription.
+    Players see the deleted task disappear on their next navigation or reload.
+
+security:
+  rpc_layer:
+    - Family-scope check prevents cross-family chore deletion
+    - Pending completion check enforced server-side (cannot be bypassed via UI)
+    - SECURITY INVOKER keeps RLS active on all table operations
+  trigger_layer:
+    - BEFORE UPDATE guard re-validates even on direct table updates
+    - SET search_path prevents schema injection attacks
+    - Fires only on actual status transition to 'deleted' (idempotent guard)
+  ui_layer:
+    - Pre-delete check is a UX gate only (fast feedback for the admin)
+    - Server is the real enforcement layer
+
+files_changed:
+  - path: supabase/migrations/018_cascade_delete_chore.sql
+    change: New — RPC function + BEFORE UPDATE trigger
+  - path: src/types/database.ts
+    change: Add 'chore_deleted' to NotificationType
+  - path: src/pages/admin/chores/ChoresPage.tsx
+    change: Replace deleteChore with pre-check + RPC call + error mapping
+  - path: src/pages/admin/chores/__tests__/ChoresPage.test.tsx
+    change: Update delete tests to cover pre-check warning and RPC error cases
