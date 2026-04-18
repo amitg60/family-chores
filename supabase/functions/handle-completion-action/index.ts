@@ -111,6 +111,7 @@ function successPage(action: string): Response {
 }
 
 Deno.serve(async (req) => {
+  console.log(`[DEBUG] method=${req.method}`)
   const url = new URL(req.url)
   const token = url.searchParams.get('token')
 
