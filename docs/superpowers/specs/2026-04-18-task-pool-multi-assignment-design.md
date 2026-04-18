@@ -201,6 +201,12 @@ All steps run in a single Postgres transaction via `service_role`. On any valida
 
 **Rate limit:** 20 calls/minute per user — enforced via Upstash Redis (`@upstash/ratelimit` library) within the Edge Function. The Redis instance is provisioned via the Supabase Marketplace integration. If Redis is unavailable, the function fails open (allows the request) and logs a warning — rate limiting is a protection layer, not a hard dependency for correctness.
 
+When failing open, the Edge Function emits a structured warning log:
+```json
+{ "event": "rate_limit_unavailable", "function": "self-assign-chore", "user_id": "...", "ts": "..." }
+```
+These warnings are monitored via a Supabase Log Drain alert rule: if more than 5 `rate_limit_unavailable` events occur within a 10-minute window, an alert is sent to the admin's email. This enables prompt investigation of Redis outages and any abuse that may occur during the unprotected window.
+
 ### 6.2 `admin-assign-chore`
 
 Called only for **pool-side admin assignment** (admin taps assign on a pool card). Admin assignment via the Edit Chore form (non-recurring `assigned_to` field) continues to use a direct Supabase client call to update `chores.assigned_to`, which is already covered by existing admin RLS policies.
@@ -298,6 +304,7 @@ const ASSIGNMENT_ERRORS: Record<string, string> = {
   INVALID_CALENDAR_DAY:   'יום לא תקין',
   INVALID_CALENDAR_SLOT:  'חריץ זמן לא תקין',
   TOO_MANY_ASSIGNEES:     'ניתן לשייך רק שחקן אחד למשימה שאינה חוזרת',
+  FORBIDDEN_FIELD_UPDATE: 'פעולה זו אינה מורשית',
   INTERNAL_ERROR:         'שגיאה פנימית — אנא נסה שנית מאוחר יותר',
 }
 ```
