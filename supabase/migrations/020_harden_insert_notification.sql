@@ -1,7 +1,7 @@
 -- ============================================================
 -- Harden insert_notification SECURITY DEFINER function
--- by pinning search_path (same hardening as migration 005
--- applied to is_admin() and get_my_family_id()).
+-- by pinning search_path (matches pattern in 018/019).
+-- Note: migration 005 used pg_temp; this migration uses pg_catalog — both are sufficient.
 -- insert_notification was defined later (migration 012) and missed.
 -- ============================================================
 CREATE OR REPLACE FUNCTION insert_notification(

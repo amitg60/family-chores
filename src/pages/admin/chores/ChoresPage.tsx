@@ -208,7 +208,7 @@ export default function ChoresPage() {
         </CardContent>
       </Card>
 
-      <Dialog open={choreToDelete !== null} onOpenChange={(open) => { if (!open) { setChoreToDelete(null); setPendingWarningChoreId(null) } }}>
+      <Dialog open={choreToDelete !== null} onOpenChange={(open) => { if (!open) { setChoreToDelete(null); setPendingWarningChoreId(null); setMutationError(null) } }}>
         <DialogContent dir="rtl">
           <DialogHeader>
             <DialogTitle>מחיקת משימה</DialogTitle>
@@ -220,7 +220,7 @@ export default function ChoresPage() {
             <p role="alert" className="text-sm text-destructive">{mutationError}</p>
           )}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setChoreToDelete(null)}>ביטול</Button>
+            <Button variant="outline" onClick={() => { setChoreToDelete(null); setMutationError(null) }}>ביטול</Button>
             <Button
               variant="destructive"
               onClick={() => { if (choreToDelete) confirmDeleteChore(choreToDelete) }}
