@@ -85,16 +85,23 @@ function confirmationPage(token: string, action: string): Response {
     : 'אתה עומד לדחות את ההגשה.'
   const btnLabel = isApprove ? 'אשר' : 'דחה'
   const btnColor = isApprove ? '#22c55e' : '#ef4444'
+  const encodedToken = encodeURIComponent(token)
   return new Response(
     htmlPage(`
       <h2 style="color:#1e1b4b;margin:0 0 24px 0;">${heading}</h2>
-      <form method="POST" action="?token=${encodeURIComponent(token)}"
-            onsubmit="this.querySelector('button[type=submit]').disabled=true">
-        <button type="submit"
-                style="background:${btnColor};color:white;padding:14px 28px;border:none;border-radius:8px;font-size:1.1rem;font-weight:bold;cursor:pointer;min-height:44px;min-width:44px;">
-          ${btnLabel}
-        </button>
-      </form>
+      <button id="btn" onclick="confirm()"
+              style="background:${btnColor};color:white;padding:14px 28px;border:none;border-radius:8px;font-size:1.1rem;font-weight:bold;cursor:pointer;min-height:44px;min-width:44px;">
+        ${btnLabel}
+      </button>
+      <script>
+        async function confirm() {
+          const btn = document.getElementById('btn');
+          btn.disabled = true;
+          const res = await fetch('?token=${encodedToken}', { method: 'POST' });
+          const html = await res.text();
+          document.open(); document.write(html); document.close();
+        }
+      </script>
     `),
     { headers: BASE_HEADERS }
   )
