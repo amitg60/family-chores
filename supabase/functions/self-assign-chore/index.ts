@@ -105,7 +105,10 @@ Deno.serve(async (req) => {
         .select('id', { count: 'exact', head: true })
         .eq('chore_id', chore_id)
         .not('status', 'in', '("failed","archived")')
-      if ((count ?? 0) > 0) return errorResponse('CHORE_TAKEN', 409)
+      if ((count ?? 0) > 0) {
+        console.log(JSON.stringify({ event: 'assign_rejected', reason: 'CHORE_TAKEN', chore_id, user_id: user.id, ts: new Date().toISOString() }))
+        return errorResponse('CHORE_TAKEN', 409)
+      }
     }
 
     // ── Insert assignment ─────────────────────────────────────────
@@ -124,7 +127,10 @@ Deno.serve(async (req) => {
       })
 
     if (insertErr) {
-      if (insertErr.code === '23505') return errorResponse('ALREADY_ASSIGNED', 409)
+      if (insertErr.code === '23505') {
+        console.log(JSON.stringify({ event: 'assign_rejected', reason: 'ALREADY_ASSIGNED', chore_id, user_id: user.id, ts: new Date().toISOString() }))
+        return errorResponse('ALREADY_ASSIGNED', 409)
+      }
       console.log(JSON.stringify({ event: 'assign_error', message: insertErr.message, chore_id, user_id: user.id, ts: new Date().toISOString() }))
       return errorResponse('INTERNAL_ERROR', 500)
     }

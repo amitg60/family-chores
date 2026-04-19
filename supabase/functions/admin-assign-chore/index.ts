@@ -101,7 +101,7 @@ Deno.serve(async (req) => {
       .from('chore_assignments')
       .insert(rows)
     if (insertErr && insertErr.code !== '23505') {
-      console.log(JSON.stringify({ event: 'admin_assign_error', message: insertErr.message, chore_id, ts: new Date().toISOString() }))
+      console.log(JSON.stringify({ event: 'assign_error', message: insertErr.message, chore_id, user_id: user.id, ts: new Date().toISOString() }))
       return errorResponse('INTERNAL_ERROR', 500)
     }
 
