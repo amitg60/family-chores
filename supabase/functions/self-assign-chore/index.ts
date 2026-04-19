@@ -68,20 +68,17 @@ Deno.serve(async (req) => {
     // ── Auth: get calling user ────────────────────────────────────
     const authHeader = req.headers.get('Authorization')
     if (!authHeader) return errorResponse('NOT_IN_FAMILY', 401)
-
-    const userClient = createClient(
-      Deno.env.get('SUPABASE_URL')!,
-      Deno.env.get('SUPABASE_ANON_KEY')!,
-      { global: { headers: { Authorization: authHeader } } }
-    )
-    const { data: { user }, error: userErr } = await userClient.auth.getUser()
-    if (userErr || !user) return errorResponse('NOT_IN_FAMILY', 401)
+    const token = authHeader.replace('Bearer ', '')
 
     // ── Service role client for all DB writes ─────────────────────
     const admin = createClient(
       Deno.env.get('SUPABASE_URL')!,
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     )
+
+    // Use admin.auth.getUser(token) — supports ES256 JWTs (project uses asymmetric keys)
+    const { data: { user }, error: userErr } = await admin.auth.getUser(token)
+    if (userErr || !user) return errorResponse('NOT_IN_FAMILY', 401)
 
     // ── Fetch caller's profile (family_id) ───────────────────────
     const { data: profile } = await admin
