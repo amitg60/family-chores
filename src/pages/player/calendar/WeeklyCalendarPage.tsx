@@ -15,19 +15,23 @@ export default function WeeklyCalendarPage() {
   const { chores } = useChores()
   const [unscheduledDragOver, setUnscheduledDragOver] = useState(false)
 
-  // Recurring pool chores always remain available — shown as persistent virtual cards
-  const recurringPoolChores = chores.filter(
-    c => c.status === 'active' && c.is_pool_visible && c.recurrence_type !== 'none'
+  // All unscheduled assignments owned by this player
+  const ownUnscheduled = assignments.filter(
+    a => a.user_id === profile?.id && a.calendar_day === null
   )
 
-  // Only non-recurring unscheduled assignments need a card (recurring are shown as virtual cards above)
-  const ownUnscheduled = assignments.filter(
-    a => a.user_id === profile?.id && a.calendar_day === null && a.chores.recurrence_type === 'none'
+  // Chore IDs the player already has an unscheduled assignment for
+  const unscheduledChoreIds = new Set(ownUnscheduled.map(a => a.chore_id))
+
+  // Virtual cards only for recurring chores the player hasn't taken yet this week
+  const recurringVirtualCards = chores.filter(
+    c => c.status === 'active' && c.is_pool_visible && c.recurrence_type !== 'none'
+       && !unscheduledChoreIds.has(c.id)
   )
 
   async function handleDropOnCell(day: number, slot: CalendarSlot, id: string) {
     if (id.startsWith(CHORE_DRAG_PREFIX)) {
-      // Recurring chore virtual card dropped onto a slot — self-assign with that slot
+      // Virtual recurring card dropped on a slot — create new assignment for that slot
       const choreId = id.slice(CHORE_DRAG_PREFIX.length)
       await supabase.functions.invoke('self-assign-chore', {
         body: { chore_id: choreId, calendar_day: day, calendar_slot: slot },
@@ -64,12 +68,11 @@ export default function WeeklyCalendarPage() {
     const id = e.dataTransfer.getData('text/plain')
     if (id && !id.startsWith(CHORE_DRAG_PREFIX)) {
       const a = assignments.find(x => x.id === id)
-      // Only unpin non-recurring assignments — recurring ones stay in their slot
-      if (a && a.chores.recurrence_type === 'none') handleUnpin(a)
+      if (a) handleUnpin(a)
     }
   }
 
-  const hasUnscheduled = recurringPoolChores.length > 0 || ownUnscheduled.length > 0
+  const hasUnscheduled = recurringVirtualCards.length > 0 || ownUnscheduled.length > 0
 
   return (
     <div className="space-y-6" dir="rtl">
@@ -105,22 +108,7 @@ export default function WeeklyCalendarPage() {
               </div>
             ) : (
               <div className={`space-y-2 p-2 rounded-lg transition-colors ${unscheduledDragOver ? 'bg-primary/10 ring-2 ring-primary/40' : ''}`}>
-                {/* Recurring pool chores — always available, drag to any slot */}
-                {recurringPoolChores.map(chore => (
-                  <div
-                    key={chore.id}
-                    draggable
-                    onDragStart={(e) => e.dataTransfer.setData('text/plain', `${CHORE_DRAG_PREFIX}${chore.id}`)}
-                    className="flex items-center justify-between p-3 border rounded-lg bg-card cursor-grab active:cursor-grabbing border-dashed"
-                  >
-                    <div>
-                      <span className="font-medium">{chore.title}</span>
-                      <span className="text-xs text-muted-foreground mr-2">🔁 {chore.coin_value} מטבעות</span>
-                    </div>
-                  </div>
-                ))}
-
-                {/* Non-recurring unscheduled assignments */}
+                {/* Actual unscheduled assignments (both recurring and non-recurring) */}
                 {ownUnscheduled.map(a => (
                   <div
                     key={a.id}
@@ -133,6 +121,9 @@ export default function WeeklyCalendarPage() {
                       <span className="text-sm text-muted-foreground mr-2">
                         {a.chores.coin_value} מטבעות
                       </span>
+                      {a.chores.recurrence_type !== 'none' && (
+                        <span className="text-xs text-muted-foreground">🔁</span>
+                      )}
                     </div>
                     <label className="flex items-center gap-1.5 cursor-pointer text-sm">
                       <input
@@ -144,6 +135,21 @@ export default function WeeklyCalendarPage() {
                       />
                       תזכורת
                     </label>
+                  </div>
+                ))}
+
+                {/* Virtual cards for recurring chores not yet taken this week */}
+                {recurringVirtualCards.map(chore => (
+                  <div
+                    key={chore.id}
+                    draggable
+                    onDragStart={(e) => e.dataTransfer.setData('text/plain', `${CHORE_DRAG_PREFIX}${chore.id}`)}
+                    className="flex items-center justify-between p-3 border border-dashed rounded-lg bg-muted/30 cursor-grab active:cursor-grabbing"
+                  >
+                    <div>
+                      <span className="font-medium">{chore.title}</span>
+                      <span className="text-xs text-muted-foreground mr-2">🔁 {chore.coin_value} מטבעות</span>
+                    </div>
                   </div>
                 ))}
               </div>
