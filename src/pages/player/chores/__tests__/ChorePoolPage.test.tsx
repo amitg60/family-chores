@@ -75,11 +75,10 @@ describe('ChorePoolPage', () => {
     expect(screen.getByText('אין משימות זמינות כרגע.')).toBeInTheDocument()
   })
 
-  it('shows pool chore with checkmark button', () => {
+  it('shows pool chore with assign button', () => {
     mockUseChores.mockReturnValue({ chores: [nonRecurringChore], loading: false, error: null, refetch: vi.fn() })
     renderPoolPage()
     expect(screen.getByText('כלי מטבח')).toBeInTheDocument()
-    // Button has aria-label containing "בחר" and the chore title
     expect(screen.getByRole('button', { name: /בחר כלי מטבח/ })).toBeInTheDocument()
   })
 
@@ -97,22 +96,14 @@ describe('ChorePoolPage', () => {
     expect(screen.getByText('להאכיל חיות')).toBeInTheDocument()
   })
 
-  it('opens slot picker sheet when checkmark button clicked', async () => {
-    mockUseChores.mockReturnValue({ chores: [nonRecurringChore], loading: false, error: null, refetch: vi.fn() })
-    renderPoolPage()
-    await userEvent.click(screen.getByRole('button', { name: /בחר כלי מטבח/ }))
-    expect(screen.getByRole('button', { name: 'שייך אליי' })).toBeInTheDocument()
-  })
-
-  it('calls self-assign-chore Edge Function on confirm and navigates for non-recurring', async () => {
+  it('calls self-assign-chore Edge Function on button click and navigates for non-recurring', async () => {
     mockUseChores.mockReturnValue({ chores: [nonRecurringChore], loading: false, error: null, refetch: vi.fn() })
     mockFunctions.mockResolvedValue({ data: { ok: true }, error: null })
     renderPoolPage()
     await userEvent.click(screen.getByRole('button', { name: /בחר כלי מטבח/ }))
-    await userEvent.click(screen.getByRole('button', { name: 'שייך אליי' }))
     await waitFor(() => {
       expect(mockFunctions).toHaveBeenCalledWith('self-assign-chore', expect.objectContaining({
-        body: expect.objectContaining({ chore_id: 'c1' }),
+        body: expect.objectContaining({ chore_id: 'c1', calendar_day: null, calendar_slot: null }),
       }))
       expect(mockNavigate).toHaveBeenCalledWith('/player')
     })
@@ -123,7 +114,6 @@ describe('ChorePoolPage', () => {
     mockFunctions.mockResolvedValue({ data: { ok: true }, error: null })
     renderPoolPage()
     await userEvent.click(screen.getByRole('button', { name: /בחר להאכיל חיות/ }))
-    await userEvent.click(screen.getByRole('button', { name: 'שייך אליי' }))
     await waitFor(() => expect(mockFunctions).toHaveBeenCalled())
     expect(mockNavigate).not.toHaveBeenCalled()
   })
@@ -133,7 +123,6 @@ describe('ChorePoolPage', () => {
     mockFunctions.mockResolvedValue({ data: null, error: { message: 'CHORE_TAKEN' } })
     renderPoolPage()
     await userEvent.click(screen.getByRole('button', { name: /בחר כלי מטבח/ }))
-    await userEvent.click(screen.getByRole('button', { name: 'שייך אליי' }))
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('המשימה כבר נלקחה על ידי שחקן אחר'))
   })
 })

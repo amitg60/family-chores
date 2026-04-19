@@ -33,7 +33,7 @@ export default function ChoreFormPage() {
   const [assignedTo, setAssignedTo]         = useState('none')
   const [dueDate, setDueDate]               = useState('')
   const [recurrenceType, setRecurrenceType] = useState<RecurrenceType>('none')
-  const [dailySchedule, setDailySchedule]   = useState<Record<number, string[]>>({})
+  const [dailySchedule, setDailySchedule]   = useState<Record<string, number[]>>({})
   const [weeklyAssignees, setWeeklyAssignees] = useState<string[]>([])
   const [saving, setSaving]                 = useState(false)
   const [error, setError]                   = useState<string | null>(null)
@@ -66,10 +66,10 @@ export default function ChoreFormPage() {
       .then(({ data }) => {
         if (!data || data.length === 0) return
         if (data[0].day_of_week !== null) {
-          const daily: Record<number, string[]> = {}
+          const daily: Record<string, number[]> = {}
           for (const row of data) {
             if (row.day_of_week !== null) {
-              daily[row.day_of_week] = [...(daily[row.day_of_week] ?? []), row.assigned_to]
+              daily[row.assigned_to] = [...(daily[row.assigned_to] ?? []), row.day_of_week]
             }
           }
           setDailySchedule(daily)
@@ -116,10 +116,10 @@ export default function ChoreFormPage() {
         if (deleteErr) { setError('שגיאה בשמירת הלוח זמנים'); return }
         const scheduleRows =
           recurrenceType === 'daily'
-            ? Object.entries(dailySchedule).flatMap(([day, userIds]) =>
-                userIds.map(userId => ({
+            ? Object.entries(dailySchedule).flatMap(([userId, days]) =>
+                days.map(day => ({
                   chore_id: choreId,
-                  day_of_week: Number(day),
+                  day_of_week: day,
                   assigned_to: userId,
                 }))
               )
@@ -245,32 +245,32 @@ export default function ChoreFormPage() {
             {recurrenceType === 'daily' && (
               <div className="space-y-3">
                 <Label>תזמון יומי</Label>
-                {DAY_NAMES.map((dayName, dayIndex) => (
-                  <div key={dayName}>
-                    <p className="text-sm font-medium mb-1">{dayName}</p>
-                    <div className="flex flex-wrap gap-x-4 gap-y-1 pr-2">
-                      {members.map(m => {
-                        const checked = (dailySchedule[dayIndex] ?? []).includes(m.id)
+                {members.map(m => (
+                  <div key={m.id} className="space-y-1">
+                    <p className="text-sm font-medium">{m.name}</p>
+                    <div className="flex flex-wrap gap-x-3 gap-y-1 pr-2">
+                      {DAY_NAMES.map((dayName, dayIndex) => {
+                        const checked = (dailySchedule[m.id] ?? []).includes(dayIndex)
                         return (
-                          <label key={m.id} className="flex items-center gap-2 cursor-pointer">
+                          <label key={dayIndex} className="flex items-center gap-1.5 cursor-pointer">
                             <input
                               type="checkbox"
-                              aria-label={`${dayName} — ${m.name}`}
+                              aria-label={`${m.name} — ${dayName}`}
                               checked={checked}
                               onChange={e => {
                                 setDailySchedule(prev => {
-                                  const current = prev[dayIndex] ?? []
+                                  const current = prev[m.id] ?? []
                                   return {
                                     ...prev,
-                                    [dayIndex]: e.target.checked
-                                      ? [...current, m.id]
-                                      : current.filter(id => id !== m.id),
+                                    [m.id]: e.target.checked
+                                      ? [...current, dayIndex]
+                                      : current.filter(d => d !== dayIndex),
                                   }
                                 })
                               }}
                               className="h-4 w-4 rounded border-input"
                             />
-                            <span className="text-sm">{m.name}</span>
+                            <span className="text-xs">{dayName}</span>
                           </label>
                         )
                       })}

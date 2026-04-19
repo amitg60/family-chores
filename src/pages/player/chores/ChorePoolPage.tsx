@@ -7,9 +7,8 @@ import { supabase } from '../../../lib/supabase'
 import { Button } from '../../../components/ui/button'
 import { Badge } from '../../../components/ui/badge'
 import { Card, CardContent } from '../../../components/ui/card'
-import SlotPickerSheet from '../../../components/player/SlotPickerSheet'
 import { assignmentErrorMessage } from '../../../lib/assignmentErrors'
-import type { ChoreDifficulty, CalendarSlot } from '../../../types/database'
+import type { ChoreDifficulty } from '../../../types/database'
 
 const difficultyLabel: Record<ChoreDifficulty, string> = {
   easy: 'קל',
@@ -23,8 +22,7 @@ export default function ChorePoolPage() {
   const { assignments } = useChoreAssignments(profile?.id)
   const navigate = useNavigate()
 
-  const [pendingChoreId, setPendingChoreId] = useState<string | null>(null)
-  const [assigning, setAssigning] = useState(false)
+  const [assigningId, setAssigningId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   // Non-recurring chores the player already holds — hide them from the pool
@@ -43,29 +41,15 @@ export default function ChorePoolPage() {
     return true
   })
 
-  const pendingChore = pendingChoreId ? chores.find(c => c.id === pendingChoreId) ?? null : null
-
-  async function handleConfirm({
-    calendarDay,
-    calendarSlot,
-  }: {
-    calendarDay: number
-    calendarSlot: CalendarSlot | null
-  }) {
-    if (!pendingChoreId || !pendingChore) return
-    setAssigning(true)
+  async function handleAssign(choreId: string, recurrenceType: string) {
+    setAssigningId(choreId)
     setError(null)
 
     const { data, error: fnError } = await supabase.functions.invoke('self-assign-chore', {
-      body: {
-        chore_id: pendingChoreId,
-        calendar_day: calendarDay,
-        calendar_slot: calendarSlot,
-      },
+      body: { chore_id: choreId, calendar_day: null, calendar_slot: null },
     })
 
-    setAssigning(false)
-    setPendingChoreId(null)
+    setAssigningId(null)
 
     if (fnError || !data?.ok) {
       const code = fnError?.message ?? 'INTERNAL_ERROR'
@@ -73,7 +57,7 @@ export default function ChorePoolPage() {
       return
     }
 
-    if (pendingChore.recurrence_type === 'none') {
+    if (recurrenceType === 'none') {
       navigate('/player')
     } else {
       refetch()
@@ -112,29 +96,16 @@ export default function ChorePoolPage() {
                 </div>
                 <Button
                   size="sm"
-                  variant="outline"
-                  disabled={assigning && pendingChoreId === chore.id}
-                  onClick={() => {
-                    setError(null)
-                    setPendingChoreId(chore.id)
-                  }}
+                  disabled={assigningId === chore.id}
+                  onClick={() => handleAssign(chore.id, chore.recurrence_type)}
                   aria-label={`בחר ${chore.title}`}
                 >
-                  ☐ בחר
+                  {assigningId === chore.id ? '...' : 'קח משימה'}
                 </Button>
               </CardContent>
             </Card>
           ))}
         </div>
-      )}
-
-      {pendingChore && (
-        <SlotPickerSheet
-          open={true}
-          choreTitle={pendingChore.title}
-          onConfirm={handleConfirm}
-          onCancel={() => setPendingChoreId(null)}
-        />
       )}
     </div>
   )
