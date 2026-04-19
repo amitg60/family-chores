@@ -52,18 +52,21 @@ export default function ChorePoolPage() {
     setAssigningId(null)
 
     if (fnError || !data?.ok) {
+      console.log('[chore-assign] fnError:', fnError, 'data:', data)
       let code = 'INTERNAL_ERROR'
       let debugInfo = ''
       if (fnError?.context) {
         try {
           const body = await fnError.context.json()
+          console.log('[chore-assign] error body:', body)
           code = body.error ?? 'INTERNAL_ERROR'
           debugInfo = body._debug ?? ''
-        } catch { /* ignore parse error */ }
+        } catch (e) { console.log('[chore-assign] context.json() failed:', e) }
       }
       setError(debugInfo ? `[debug] ${debugInfo}` : assignmentErrorMessage(code))
       return
     }
+    console.log('[chore-assign] success, data:', data)
 
     if (recurrenceType === 'none') {
       navigate('/player')
