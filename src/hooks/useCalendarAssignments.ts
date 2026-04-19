@@ -39,8 +39,10 @@ export function useCalendarAssignments(): UseCalendarAssignmentsResult {
       .order('created_at', { ascending: true })
     if (!mountedRef.current) return
     if (error) {
+      console.log('[calendar] fetch error:', error)
       setError(error.message)
     } else {
+      console.log('[calendar] fetched', data?.length, 'assignments, week_start=', weekStart, data)
       setAssignments((data as AssignmentWithDetails[]) ?? [])
     }
     setLoading(false)

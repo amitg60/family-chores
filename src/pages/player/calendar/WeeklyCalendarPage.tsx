@@ -30,25 +30,27 @@ export default function WeeklyCalendarPage() {
   )
 
   async function handleDropOnCell(day: number, slot: CalendarSlot, id: string) {
+    console.log('[drop] day=%o slot=%o id=%o', day, slot, id)
     if (id.startsWith(CHORE_DRAG_PREFIX)) {
-      // Virtual recurring card dropped on a slot — create new assignment
       const choreId = id.slice(CHORE_DRAG_PREFIX.length)
-      await supabase.functions.invoke('self-assign-chore', {
+      const { data, error } = await supabase.functions.invoke('self-assign-chore', {
         body: { chore_id: choreId, calendar_day: day, calendar_slot: slot },
       })
+      console.log('[drop] invoke result:', { data, error })
     } else {
       const assignment = assignments.find(a => a.id === id)
+      console.log('[drop] assignment found:', assignment)
       if (assignment && assignment.chores.recurrence_type !== 'none' && assignment.calendar_day !== null) {
-        // Already-scheduled recurring assignment dragged to another slot → create a copy, keep original
-        await supabase.functions.invoke('self-assign-chore', {
+        const { data, error } = await supabase.functions.invoke('self-assign-chore', {
           body: { chore_id: assignment.chore_id, calendar_day: day, calendar_slot: slot },
         })
+        console.log('[drop] invoke (copy) result:', { data, error })
       } else {
-        // Non-recurring or unscheduled assignment → move to new slot
-        await supabase
+        const { error } = await supabase
           .from('chore_assignments')
           .update({ calendar_day: day, calendar_slot: slot })
           .eq('id', id)
+        console.log('[drop] update result:', { error })
       }
     }
     refetch()
