@@ -46,12 +46,12 @@ export function useCalendarAssignments(): UseCalendarAssignmentsResult {
       console.log('[calendar] fetched', data?.length, 'assignments, week_start=', weekStart, data)
       setAssignments((data as AssignmentWithDetails[]) ?? [])
     }
-    // Temp debug: raw query without join to check if assignment is in DB
+    // Temp debug: all rows for chore 39e7bdd6 across ALL weeks to find hidden conflict
     const { data: raw, error: rawErr } = await supabase
       .from('chore_assignments')
-      .select('id, chore_id, calendar_day, calendar_slot, status, archived')
-      .eq('week_start', weekStart)
-    console.log('[calendar] raw (no join, no filter):', rawErr ?? raw)
+      .select('id, chore_id, user_id, week_start, calendar_day, calendar_slot, status, archived')
+      .eq('chore_id', '39e7bdd6-3ac4-4980-af6e-5a3b2f41bc15')
+    console.log('[calendar] raw ALL-weeks for chore 39e7bdd6:', rawErr ?? raw)
     setLoading(false)
   }, [])
 
