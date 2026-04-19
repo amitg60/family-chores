@@ -96,6 +96,47 @@ function AssignmentCard({
   )
 }
 
+interface SlotCellProps {
+  cards: AssignmentWithDetails[]
+  renderCard: (a: AssignmentWithDetails) => React.ReactNode
+  className: string
+  onDragOver: (e: React.DragEvent) => void
+  onDragLeave: () => void
+  onDrop: (e: React.DragEvent) => void
+  testId: string
+}
+
+function SlotCell({ cards, renderCard, className, onDragOver, onDragLeave, onDrop, testId }: SlotCellProps) {
+  const [expanded, setExpanded] = useState(false)
+  const COLLAPSE_AT = 3
+  const showCollapse = cards.length >= COLLAPSE_AT && !expanded
+  const visibleCards = showCollapse ? cards.slice(0, 2) : cards
+
+  return (
+    <div
+      className={className}
+      data-testid={testId}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+    >
+      {visibleCards.map(a => renderCard(a))}
+      {showCollapse && (
+        <button
+          type="button"
+          className="text-xs text-primary underline mt-0.5 text-right w-full"
+          onClick={() => setExpanded(true)}
+        >
+          ועוד {cards.length - 2} משימות ▾
+        </button>
+      )}
+      {cards.length === 0 && (
+        <p className="text-xs text-muted-foreground/60 pt-1">גרור לכאן</p>
+      )}
+    </div>
+  )
+}
+
 interface WeeklyCalendarGridProps {
   assignments: AssignmentWithDetails[]
   currentUserId?: string
@@ -195,19 +236,15 @@ export default function WeeklyCalendarGrid({
             return (
               <div key={slot.key}>
                 <p className="text-xs text-muted-foreground font-medium mb-1">{slot.label}</p>
-                <div
+                <SlotCell
+                  cards={cards}
+                  renderCard={renderCard}
                   className={`min-h-[56px] rounded p-2 space-y-1 transition-colors ${cellClass(selectedDay, slot.key, '')}`}
-                  data-testid={`cell-${selectedDay}-${slot.key}`}
+                  testId={`cell-${selectedDay}-${slot.key}`}
                   onDragOver={(e) => handleDragOver(e, selectedDay, slot.key)}
                   onDragLeave={() => setDragOverCell(null)}
                   onDrop={(e) => handleDrop(e, selectedDay, slot.key)}
-                >
-                  {cards.length === 0 ? (
-                    <p className="text-xs text-muted-foreground/60 pt-1">גרור לכאן</p>
-                  ) : (
-                    cards.map(renderCard)
-                  )}
-                </div>
+                />
               </div>
             )
           })}
