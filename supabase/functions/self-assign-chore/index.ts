@@ -133,6 +133,14 @@ Deno.serve(async (req) => {
 
     if (insertErr) {
       if (insertErr.code === '23505') {
+        if (chore.recurrence_type !== 'none') {
+          // Recurring: slot already occupied (pending, completed, or archived) — idempotent, treat as success
+          console.log(JSON.stringify({ event: 'assign_duplicate_ok', reason: 'slot_occupied', chore_id, user_id: user.id, ts: new Date().toISOString() }))
+          return new Response(JSON.stringify({ ok: true }), {
+            status: 200,
+            headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
+          })
+        }
         console.log(JSON.stringify({ event: 'assign_rejected', reason: 'ALREADY_ASSIGNED', chore_id, user_id: user.id, ts: new Date().toISOString() }))
         return errorResponse('ALREADY_ASSIGNED', 409)
       }
