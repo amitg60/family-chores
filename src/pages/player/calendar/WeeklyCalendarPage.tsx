@@ -28,6 +28,7 @@ export default function WeeklyCalendarPage() {
     c => c.status === 'active' && c.is_pool_visible && c.recurrence_type !== 'none'
        && !unscheduledChoreIds.has(c.id)
   )
+  console.log('[calendar-page] ownUnscheduled=%o virtualCards=%o assignments=%o', ownUnscheduled.length, recurringVirtualCards.length, assignments.length)
 
   async function handleDropOnCell(day: number, slot: CalendarSlot, id: string) {
     console.log('[drop] day=%o slot=%o id=%o', day, slot, id)
