@@ -13,10 +13,15 @@ const ERRORS: Record<string, string> = {
   INTERNAL_ERROR:       'שגיאה פנימית',
 }
 
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+}
+
 function errorResponse(code: string, status = 400) {
   return new Response(
     JSON.stringify({ error: code, message: ERRORS[code] ?? ERRORS.INTERNAL_ERROR }),
-    { status, headers: { 'Content-Type': 'application/json' } }
+    { status, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
   )
 }
 
@@ -33,7 +38,7 @@ function getWeekStart(date: Date): string {
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, content-type' } })
+    return new Response(null, { headers: CORS_HEADERS })
   }
 
   try {
@@ -132,7 +137,7 @@ Deno.serve(async (req) => {
         return errorResponse('ALREADY_ASSIGNED', 409)
       }
       console.log(JSON.stringify({ event: 'assign_error', message: insertErr.message, code: insertErr.code, chore_id, user_id: user.id, ts: new Date().toISOString() }))
-      return new Response(JSON.stringify({ error: 'INTERNAL_ERROR', message: 'שגיאה פנימית', _debug: `insert_err ${insertErr.code}: ${insertErr.message}` }), { status: 500, headers: { 'Content-Type': 'application/json' } })
+      return new Response(JSON.stringify({ error: 'INTERNAL_ERROR', message: 'שגיאה פנימית', _debug: `insert_err ${insertErr.code}: ${insertErr.message}` }), { status: 500, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } })
     }
 
     // ── Non-recurring: hide from pool ─────────────────────────────
@@ -154,11 +159,11 @@ Deno.serve(async (req) => {
 
     return new Response(JSON.stringify({ ok: true }), {
       status: 200,
-      headers: { 'Content-Type': 'application/json' },
+      headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
     })
   } catch (err) {
     const msg = String(err)
     console.log(JSON.stringify({ event: 'assign_error', message: msg, ts: new Date().toISOString() }))
-    return new Response(JSON.stringify({ error: 'INTERNAL_ERROR', message: 'שגיאה פנימית', _debug: `catch: ${msg}` }), { status: 500, headers: { 'Content-Type': 'application/json' } })
+    return new Response(JSON.stringify({ error: 'INTERNAL_ERROR', message: 'שגיאה פנימית', _debug: `catch: ${msg}` }), { status: 500, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } })
   }
 })
