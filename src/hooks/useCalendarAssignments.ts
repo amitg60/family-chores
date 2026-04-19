@@ -20,14 +20,15 @@ export function useCalendarAssignments(): UseCalendarAssignmentsResult {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const mountedRef = useRef(true)
+  const initialLoadDone = useRef(false)
 
   useEffect(() => {
     mountedRef.current = true
     return () => { mountedRef.current = false }
   }, [])
 
-  const fetchAssignments = useCallback(async () => {
-    setLoading(true)
+  const fetchAssignments = useCallback(async (showSpinner = false) => {
+    if (showSpinner) setLoading(true)
     setError(null)
     const weekStart = getCurrentWeekStart()
     const { data, error } = await supabase
@@ -48,7 +49,12 @@ export function useCalendarAssignments(): UseCalendarAssignmentsResult {
     setLoading(false)
   }, [])
 
-  useEffect(() => { fetchAssignments() }, [fetchAssignments])
+  useEffect(() => {
+    if (!initialLoadDone.current) {
+      initialLoadDone.current = true
+      fetchAssignments(true)
+    }
+  }, [fetchAssignments])
 
-  return { assignments, loading, error, refetch: fetchAssignments }
+  return { assignments, loading, error, refetch: () => fetchAssignments(false) }
 }
