@@ -37,7 +37,8 @@ export default function WeeklyCalendarPage() {
       const { data, error } = await supabase.functions.invoke('self-assign-chore', {
         body: { chore_id: choreId, calendar_day: day, calendar_slot: slot },
       })
-      console.log('[drop] invoke result:', { data, error })
+      const errBody = error ? await (error as any).context?.text?.() : null
+      console.log('[drop] invoke result:', { data, error, errBody })
     } else {
       const assignment = assignments.find(a => a.id === id)
       console.log('[drop] assignment found:', assignment)
