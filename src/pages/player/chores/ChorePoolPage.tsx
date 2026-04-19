@@ -52,7 +52,15 @@ export default function ChorePoolPage() {
     setAssigningId(null)
 
     if (fnError || !data?.ok) {
-      const code = fnError?.message ?? 'INTERNAL_ERROR'
+      let code = 'INTERNAL_ERROR'
+      if (fnError?.message) {
+        try {
+          const parsed = JSON.parse(fnError.message)
+          code = parsed.error ?? 'INTERNAL_ERROR'
+        } catch {
+          code = fnError.message
+        }
+      }
       setError(assignmentErrorMessage(code))
       return
     }
