@@ -131,8 +131,8 @@ Deno.serve(async (req) => {
         console.log(JSON.stringify({ event: 'assign_rejected', reason: 'ALREADY_ASSIGNED', chore_id, user_id: user.id, ts: new Date().toISOString() }))
         return errorResponse('ALREADY_ASSIGNED', 409)
       }
-      console.log(JSON.stringify({ event: 'assign_error', message: insertErr.message, chore_id, user_id: user.id, ts: new Date().toISOString() }))
-      return errorResponse('INTERNAL_ERROR', 500)
+      console.log(JSON.stringify({ event: 'assign_error', message: insertErr.message, code: insertErr.code, chore_id, user_id: user.id, ts: new Date().toISOString() }))
+      return new Response(JSON.stringify({ error: 'INTERNAL_ERROR', message: 'שגיאה פנימית', _debug: `insert_err ${insertErr.code}: ${insertErr.message}` }), { status: 500, headers: { 'Content-Type': 'application/json' } })
     }
 
     // ── Non-recurring: hide from pool ─────────────────────────────
@@ -157,7 +157,8 @@ Deno.serve(async (req) => {
       headers: { 'Content-Type': 'application/json' },
     })
   } catch (err) {
-    console.log(JSON.stringify({ event: 'assign_error', message: String(err), ts: new Date().toISOString() }))
-    return errorResponse('INTERNAL_ERROR', 500)
+    const msg = String(err)
+    console.log(JSON.stringify({ event: 'assign_error', message: msg, ts: new Date().toISOString() }))
+    return new Response(JSON.stringify({ error: 'INTERNAL_ERROR', message: 'שגיאה פנימית', _debug: `catch: ${msg}` }), { status: 500, headers: { 'Content-Type': 'application/json' } })
   }
 })
