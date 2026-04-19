@@ -54,14 +54,12 @@ export default function ChorePoolPage() {
     if (fnError || !data?.ok) {
       let code = 'INTERNAL_ERROR'
       let debugInfo = ''
-      if (fnError?.message) {
+      if (fnError?.context) {
         try {
-          const parsed = JSON.parse(fnError.message)
-          code = parsed.error ?? 'INTERNAL_ERROR'
-          debugInfo = parsed._debug ?? ''
-        } catch {
-          code = fnError.message
-        }
+          const body = await fnError.context.json()
+          code = body.error ?? 'INTERNAL_ERROR'
+          debugInfo = body._debug ?? ''
+        } catch { /* ignore parse error */ }
       }
       setError(debugInfo ? `[debug] ${debugInfo}` : assignmentErrorMessage(code))
       return

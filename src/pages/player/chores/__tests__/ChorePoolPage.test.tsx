@@ -120,7 +120,7 @@ describe('ChorePoolPage', () => {
 
   it('shows Hebrew error message when Edge Function returns error', async () => {
     mockUseChores.mockReturnValue({ chores: [nonRecurringChore], loading: false, error: null, refetch: vi.fn() })
-    mockFunctions.mockResolvedValue({ data: null, error: { message: 'CHORE_TAKEN' } })
+    mockFunctions.mockResolvedValue({ data: null, error: { context: { json: async () => ({ error: 'CHORE_TAKEN' }) } } })
     renderPoolPage()
     await userEvent.click(screen.getByRole('button', { name: /בחר כלי מטבח/ }))
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('המשימה כבר נלקחה על ידי שחקן אחר'))
