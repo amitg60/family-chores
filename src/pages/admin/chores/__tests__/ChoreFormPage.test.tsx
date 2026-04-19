@@ -4,6 +4,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import '../../../../test/mocks/supabase'
 import { mockFrom } from '../../../../test/mocks/supabase'
+import { useFamilyMembers } from '../../../../hooks/useFamilyMembers'
 
 vi.mock('../../../../hooks/useFamilyMembers', () => ({
   useFamilyMembers: vi.fn(() => ({
@@ -204,5 +205,37 @@ describe('ChoreFormPage — edit mode', () => {
     await userEvent.click(screen.getByRole('button', { name: 'שמור' }))
 
     await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/admin/chores'))
+  })
+})
+
+describe('ChoreFormPage — daily schedule multi-player', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('shows checkboxes per day member when daily recurrence selected', async () => {
+    renderCreate()
+    await userEvent.click(screen.getByRole('combobox', { name: 'סוג חזרה' }))
+    await userEvent.click(screen.getByRole('option', { name: 'יומי' }))
+    expect(screen.getByRole('checkbox', { name: 'ראשון — דנה' })).toBeInTheDocument()
+  })
+
+  it('allows multiple players to be checked for the same day', async () => {
+    vi.mocked(useFamilyMembers).mockReturnValue({
+      members: [
+        { id: 'p1', name: 'דנה', role: 'player' as const, family_id: 'f1', avatar_url: null, trust_level: 1, coin_balance: 0, created_at: '', updated_at: '' },
+        { id: 'p2', name: 'יוסי', role: 'player' as const, family_id: 'f1', avatar_url: null, trust_level: 1, coin_balance: 0, created_at: '', updated_at: '' },
+      ],
+      loading: false,
+      error: null,
+      refetch: vi.fn(),
+    })
+    renderCreate()
+    await userEvent.click(screen.getByRole('combobox', { name: 'סוג חזרה' }))
+    await userEvent.click(screen.getByRole('option', { name: 'יומי' }))
+
+    await userEvent.click(screen.getByRole('checkbox', { name: 'ראשון — דנה' }))
+    await userEvent.click(screen.getByRole('checkbox', { name: 'ראשון — יוסי' }))
+
+    expect(screen.getByRole('checkbox', { name: 'ראשון — דנה' })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: 'ראשון — יוסי' })).toBeChecked()
   })
 })
