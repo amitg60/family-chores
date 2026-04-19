@@ -1,4 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { createRemoteJWKSet, jwtVerify } from 'https://deno.land/x/jose@v5.6.3/index.ts'
 
 const VALID_SLOTS = new Set(['morning', 'noon', 'afternoon'])
 
@@ -76,15 +77,23 @@ Deno.serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     )
 
-    // Use admin.auth.getUser(token) — supports ES256 JWTs (project uses asymmetric keys)
-    const { data: { user }, error: userErr } = await admin.auth.getUser(token)
-    if (userErr || !user) return errorResponse('NOT_IN_FAMILY', 401)
+    // Verify JWT via JWKS — supports both HS256 and ES256 project keys
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!
+    const JWKS = createRemoteJWKSet(new URL(`${supabaseUrl}/auth/v1/.well-known/jwks.json`))
+    let userId: string
+    try {
+      const { payload } = await jwtVerify(token, JWKS)
+      if (!payload.sub) return errorResponse('NOT_IN_FAMILY', 401)
+      userId = payload.sub
+    } catch {
+      return errorResponse('NOT_IN_FAMILY', 401)
+    }
 
     // ── Fetch caller's profile (family_id) ───────────────────────
     const { data: profile } = await admin
       .from('profiles')
       .select('family_id')
-      .eq('id', user.id)
+      .eq('id', userId)
       .single()
     if (!profile?.family_id) return errorResponse('NOT_IN_FAMILY', 403)
 
@@ -108,7 +117,7 @@ Deno.serve(async (req) => {
         .eq('chore_id', chore_id)
         .not('status', 'in', '("failed","archived")')
       if ((count ?? 0) > 0) {
-        console.log(JSON.stringify({ event: 'assign_rejected', reason: 'CHORE_TAKEN', chore_id, user_id: user.id, ts: new Date().toISOString() }))
+        console.log(JSON.stringify({ event: 'assign_rejected', reason: 'CHORE_TAKEN', chore_id, user_id: userId, ts: new Date().toISOString() }))
         return errorResponse('CHORE_TAKEN', 409)
       }
     }
@@ -118,30 +127,30 @@ Deno.serve(async (req) => {
       .from('chore_assignments')
       .insert({
         chore_id,
-        user_id: user.id,
+        user_id: userId,
         week_start: weekStart,
         calendar_day: normalizedDay,
         calendar_slot: normalizedSlot,
         status: 'pending',
         archived: false,
         reminder_enabled: false,
-        assigned_by: user.id,
+        assigned_by: userId,
       })
 
     if (insertErr) {
       if (insertErr.code === '23505') {
         if (chore.recurrence_type !== 'none') {
           // Recurring: slot already occupied (pending, completed, or archived) — idempotent, treat as success
-          console.log(JSON.stringify({ event: 'assign_duplicate_ok', reason: 'slot_occupied', chore_id, user_id: user.id, calendar_day: normalizedDay, calendar_slot: normalizedSlot, weekStart, constraint_detail: (insertErr as any).details ?? insertErr.message, ts: new Date().toISOString() }))
+          console.log(JSON.stringify({ event: 'assign_duplicate_ok', reason: 'slot_occupied', chore_id, user_id: userId, calendar_day: normalizedDay, calendar_slot: normalizedSlot, weekStart, constraint_detail: (insertErr as any).details ?? insertErr.message, ts: new Date().toISOString() }))
           return new Response(JSON.stringify({ ok: true, idempotent: true }), {
             status: 200,
             headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
           })
         }
-        console.log(JSON.stringify({ event: 'assign_rejected', reason: 'ALREADY_ASSIGNED', chore_id, user_id: user.id, ts: new Date().toISOString() }))
+        console.log(JSON.stringify({ event: 'assign_rejected', reason: 'ALREADY_ASSIGNED', chore_id, user_id: userId, ts: new Date().toISOString() }))
         return errorResponse('ALREADY_ASSIGNED', 409)
       }
-      console.log(JSON.stringify({ event: 'assign_error', message: insertErr.message, code: insertErr.code, chore_id, user_id: user.id, ts: new Date().toISOString() }))
+      console.log(JSON.stringify({ event: 'assign_error', message: insertErr.message, code: insertErr.code, chore_id, user_id: userId, ts: new Date().toISOString() }))
       return new Response(JSON.stringify({ error: 'INTERNAL_ERROR', message: 'שגיאה פנימית', _debug: `insert_err ${insertErr.code}: ${insertErr.message}` }), { status: 500, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } })
     }
 
@@ -152,7 +161,7 @@ Deno.serve(async (req) => {
 
     // ── Notification ──────────────────────────────────────────────
     await admin.from('notifications').insert({
-      user_id: user.id,
+      user_id: userId,
       family_id: profile.family_id,
       type: 'chore_assigned',
       title_he: 'משימה חדשה שויכה אליך',
@@ -160,7 +169,7 @@ Deno.serve(async (req) => {
       related_entity_id: chore_id,
     })
 
-    console.log(JSON.stringify({ event: 'chore_assigned', chore_id, user_id: user.id, assigned_by: user.id, recurrence_type: chore.recurrence_type, calendar_day: normalizedDay, calendar_slot: normalizedSlot, ts: new Date().toISOString() }))
+    console.log(JSON.stringify({ event: 'chore_assigned', chore_id, user_id: userId, assigned_by: userId, recurrence_type: chore.recurrence_type, calendar_day: normalizedDay, calendar_slot: normalizedSlot, ts: new Date().toISOString() }))
 
     return new Response(JSON.stringify({ ok: true }), {
       status: 200,
