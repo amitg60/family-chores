@@ -46,6 +46,12 @@ export function useCalendarAssignments(): UseCalendarAssignmentsResult {
       console.log('[calendar] fetched', data?.length, 'assignments, week_start=', weekStart, data)
       setAssignments((data as AssignmentWithDetails[]) ?? [])
     }
+    // Temp debug: raw query without join to check if assignment is in DB
+    const { data: raw, error: rawErr } = await supabase
+      .from('chore_assignments')
+      .select('id, chore_id, calendar_day, calendar_slot, status, archived')
+      .eq('week_start', weekStart)
+    console.log('[calendar] raw (no join, no filter):', rawErr ?? raw)
     setLoading(false)
   }, [])
 

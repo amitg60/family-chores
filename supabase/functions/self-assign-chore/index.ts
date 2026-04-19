@@ -135,8 +135,8 @@ Deno.serve(async (req) => {
       if (insertErr.code === '23505') {
         if (chore.recurrence_type !== 'none') {
           // Recurring: slot already occupied (pending, completed, or archived) — idempotent, treat as success
-          console.log(JSON.stringify({ event: 'assign_duplicate_ok', reason: 'slot_occupied', chore_id, user_id: user.id, ts: new Date().toISOString() }))
-          return new Response(JSON.stringify({ ok: true }), {
+          console.log(JSON.stringify({ event: 'assign_duplicate_ok', reason: 'slot_occupied', chore_id, user_id: user.id, calendar_day: normalizedDay, calendar_slot: normalizedSlot, ts: new Date().toISOString() }))
+          return new Response(JSON.stringify({ ok: true, idempotent: true }), {
             status: 200,
             headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
           })
