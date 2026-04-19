@@ -31,17 +31,25 @@ export default function WeeklyCalendarPage() {
 
   async function handleDropOnCell(day: number, slot: CalendarSlot, id: string) {
     if (id.startsWith(CHORE_DRAG_PREFIX)) {
-      // Virtual recurring card dropped on a slot — create new assignment for that slot
+      // Virtual recurring card dropped on a slot — create new assignment
       const choreId = id.slice(CHORE_DRAG_PREFIX.length)
       await supabase.functions.invoke('self-assign-chore', {
         body: { chore_id: choreId, calendar_day: day, calendar_slot: slot },
       })
     } else {
-      // Existing assignment moved to a new slot
-      await supabase
-        .from('chore_assignments')
-        .update({ calendar_day: day, calendar_slot: slot })
-        .eq('id', id)
+      const assignment = assignments.find(a => a.id === id)
+      if (assignment && assignment.chores.recurrence_type !== 'none' && assignment.calendar_day !== null) {
+        // Already-scheduled recurring assignment dragged to another slot → create a copy, keep original
+        await supabase.functions.invoke('self-assign-chore', {
+          body: { chore_id: assignment.chore_id, calendar_day: day, calendar_slot: slot },
+        })
+      } else {
+        // Non-recurring or unscheduled assignment → move to new slot
+        await supabase
+          .from('chore_assignments')
+          .update({ calendar_day: day, calendar_slot: slot })
+          .eq('id', id)
+      }
     }
     refetch()
   }

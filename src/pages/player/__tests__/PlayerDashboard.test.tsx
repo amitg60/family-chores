@@ -131,4 +131,25 @@ describe('PlayerDashboard', () => {
     renderDashboard()
     await waitFor(() => expect(mockCheckAndAward).toHaveBeenCalled())
   })
+
+  it('shows count badge when same recurring chore has multiple assignments', () => {
+    const a2 = { ...fakeAssignment, id: 'a2' }
+    mockUseChoreAssignments.mockReturnValue({
+      assignments: [fakeAssignment, a2], loading: false, error: null, refetch: vi.fn(),
+    })
+    mockUseChores.mockReturnValue({ chores: [fakeChore], loading: false, error: null, refetch: vi.fn() })
+    renderDashboard()
+    expect(screen.getByText('2 משימות')).toBeInTheDocument()
+    // grouped → only one card for the chore
+    expect(screen.getAllByText('כלי מטבח')).toHaveLength(1)
+  })
+
+  it('does not show count badge for a single assignment', () => {
+    mockUseChoreAssignments.mockReturnValue({
+      assignments: [fakeAssignment], loading: false, error: null, refetch: vi.fn(),
+    })
+    mockUseChores.mockReturnValue({ chores: [fakeChore], loading: false, error: null, refetch: vi.fn() })
+    renderDashboard()
+    expect(screen.queryByText(/^\d+ משימות$/)).not.toBeInTheDocument()
+  })
 })

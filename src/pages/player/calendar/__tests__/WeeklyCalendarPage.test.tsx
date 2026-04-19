@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
 import '../../../../test/mocks/supabase'
-import { mockFrom } from '../../../../test/mocks/supabase'
+import { mockFrom, mockFunctionsInvoke } from '../../../../test/mocks/supabase'
 import type { AssignmentWithDetails } from '../../../../hooks/useCalendarAssignments'
 
 const mockRefetch = vi.fn()
@@ -146,6 +146,31 @@ describe('Player WeeklyCalendarPage', () => {
     expect(screen.getByText('אבק')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'הסר' })).not.toBeInTheDocument()
     expect(screen.queryByRole('checkbox', { name: 'תזכורת' })).not.toBeInTheDocument()
+  })
+
+  it('dragging an already-scheduled recurring assignment creates a new one instead of moving', async () => {
+    const recurringPinned: AssignmentWithDetails = {
+      ...ownPinned, id: 'a5', calendar_day: 2, calendar_slot: 'afternoon',
+      chores: { title: 'ניקיון', coin_value: 8, recurrence_type: 'daily' },
+    }
+    mockUseCalendarAssignments.mockReturnValue({
+      assignments: [recurringPinned], loading: false, error: null, refetch: mockRefetch,
+    })
+    renderPage()
+
+    const cell = screen.getAllByTestId('cell-1-morning')[0]
+    fireEvent.drop(cell, {
+      dataTransfer: { getData: () => 'a5' },
+    })
+
+    await waitFor(() => {
+      expect(mockFunctionsInvoke).toHaveBeenCalledWith('self-assign-chore', {
+        body: { chore_id: 'c1', calendar_day: 1, calendar_slot: 'morning' },
+      })
+      expect(mockRefetch).toHaveBeenCalled()
+    })
+    // should NOT call supabase.from().update() since it's a recurring scheduled assignment
+    expect(mockFrom).not.toHaveBeenCalledWith('chore_assignments')
   })
 
   it('completed assignments are not shown', () => {

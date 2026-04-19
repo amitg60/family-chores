@@ -83,6 +83,17 @@ export default function PlayerDashboard() {
     return chores.find(c => c.id === choreId)?.coin_value ?? 0
   }
 
+  // Group assignments by chore so recurring tasks with multiple slots show a count
+  const grouped = assignments.reduce<Record<string, typeof assignments>>((acc, a) => {
+    ;(acc[a.chore_id] ??= []).push(a)
+    return acc
+  }, {})
+
+  const displayGroups = Object.values(grouped).map(group => {
+    const actionable = group.find(a => a.status === 'pending' || a.status === 'in_progress') ?? group[0]
+    return { representative: actionable, count: group.length }
+  })
+
   return (
     <div className="space-y-6" dir="rtl">
       <div className="flex items-center justify-between">
@@ -113,11 +124,18 @@ export default function PlayerDashboard() {
         <p className="text-muted-foreground">אין משימות השבוע. לחץ על "בחר משימה" להוסיף.</p>
       ) : (
         <div className="space-y-3">
-          {assignments.map(a => (
-            <Card key={a.id}>
+          {displayGroups.map(({ representative: a, count }) => (
+            <Card key={a.chore_id}>
               <CardContent className="py-3 flex items-center justify-between">
                 <div>
-                  <p className="font-medium">{choreTitle(a.chore_id)}</p>
+                  <div className="flex items-center gap-2">
+                    <p className="font-medium">{choreTitle(a.chore_id)}</p>
+                    {count > 1 && (
+                      <Badge variant="secondary" className="text-xs">
+                        {count} משימות
+                      </Badge>
+                    )}
+                  </div>
                   <p className="text-sm text-muted-foreground">{choreCoins(a.chore_id)} מטבעות</p>
                 </div>
                 <div className="flex items-center gap-2">

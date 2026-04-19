@@ -11,6 +11,7 @@ const {
   mockStorageFrom,
   mockChannel,
   mockRemoveChannel,
+  mockFunctionsInvoke,
 } = vi.hoisted(() => {
   const mockChannelObj = {
     on: vi.fn().mockReturnThis(),
@@ -29,6 +30,7 @@ const {
     mockStorageFrom: vi.fn(),
     mockChannel: vi.fn().mockReturnValue(mockChannelObj),
     mockRemoveChannel: vi.fn(),
+    mockFunctionsInvoke: vi.fn().mockResolvedValue({ data: null, error: null }),
   }
 })
 
@@ -48,6 +50,9 @@ vi.mock('../../lib/supabase', () => ({
     },
     channel: mockChannel,
     removeChannel: mockRemoveChannel,
+    functions: {
+      invoke: mockFunctionsInvoke,
+    },
   },
 }))
 
@@ -62,4 +67,5 @@ export {
   mockStorageFrom,
   mockChannel,
   mockRemoveChannel,
+  mockFunctionsInvoke,
 }
