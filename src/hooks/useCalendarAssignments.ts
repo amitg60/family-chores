@@ -4,7 +4,7 @@ import { getCurrentWeekStart } from '../lib/weekStart'
 import type { ChoreAssignment } from '../types/database'
 
 export interface AssignmentWithDetails extends ChoreAssignment {
-  chores: { title: string; coin_value: number }
+  chores: { title: string; coin_value: number; recurrence_type: string }
   profiles: { name: string; avatar_url: string | null }
 }
 
@@ -32,7 +32,7 @@ export function useCalendarAssignments(): UseCalendarAssignmentsResult {
     const weekStart = getCurrentWeekStart()
     const { data, error } = await supabase
       .from('chore_assignments')
-      .select('*, chores!inner(title, coin_value), profiles!user_id(name, avatar_url)')
+      .select('*, chores!inner(title, coin_value, recurrence_type), profiles!user_id(name, avatar_url)')
       .eq('week_start', weekStart)
       .eq('archived', false)
       .neq('status', 'completed')

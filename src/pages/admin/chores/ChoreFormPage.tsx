@@ -17,8 +17,6 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card'
 import type { ChoreDifficulty, ChoreStatus, RecurrenceType } from '../../../types/database'
 
-const DAY_NAMES = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת']
-
 export default function ChoreFormPage() {
   const { id } = useParams<{ id: string }>()
   const isEditMode = id !== undefined
@@ -33,8 +31,7 @@ export default function ChoreFormPage() {
   const [assignedTo, setAssignedTo]         = useState('none')
   const [dueDate, setDueDate]               = useState('')
   const [recurrenceType, setRecurrenceType] = useState<RecurrenceType>('none')
-  const [dailySchedule, setDailySchedule]   = useState<Record<string, number[]>>({})
-  const [weeklyAssignees, setWeeklyAssignees] = useState<string[]>([])
+  const [recurringAssignees, setRecurringAssignees] = useState<string[]>([])
   const [saving, setSaving]                 = useState(false)
   const [error, setError]                   = useState<string | null>(null)
 
@@ -65,17 +62,7 @@ export default function ChoreFormPage() {
       .eq('chore_id', id)
       .then(({ data }) => {
         if (!data || data.length === 0) return
-        if (data[0].day_of_week !== null) {
-          const daily: Record<string, number[]> = {}
-          for (const row of data) {
-            if (row.day_of_week !== null) {
-              daily[row.assigned_to] = [...(daily[row.assigned_to] ?? []), row.day_of_week]
-            }
-          }
-          setDailySchedule(daily)
-        } else {
-          setWeeklyAssignees(data.map((r: { assigned_to: string }) => r.assigned_to))
-        }
+        setRecurringAssignees([...new Set(data.map((r: { assigned_to: string }) => r.assigned_to))])
       })
   }, [id, isEditMode])
 
@@ -114,20 +101,11 @@ export default function ChoreFormPage() {
       if (recurrenceType !== 'none') {
         const { error: deleteErr } = await supabase.from('chore_schedule').delete().eq('chore_id', choreId)
         if (deleteErr) { setError('שגיאה בשמירת הלוח זמנים'); return }
-        const scheduleRows =
-          recurrenceType === 'daily'
-            ? Object.entries(dailySchedule).flatMap(([userId, days]) =>
-                days.map(day => ({
-                  chore_id: choreId,
-                  day_of_week: day,
-                  assigned_to: userId,
-                }))
-              )
-            : weeklyAssignees.map(userId => ({
-                chore_id: choreId,
-                day_of_week: null,
-                assigned_to: userId,
-              }))
+        const scheduleRows = recurringAssignees.map(userId => ({
+          chore_id: choreId,
+          day_of_week: null,
+          assigned_to: userId,
+        }))
         if (scheduleRows.length > 0) {
           const { error: schedErr } = await supabase.from('chore_schedule').insert(scheduleRows)
           if (schedErr) { setError('שגיאה בשמירת הלוח זמנים'); return }
@@ -242,58 +220,20 @@ export default function ChoreFormPage() {
               </Select>
             </div>
 
-            {recurrenceType === 'daily' && (
-              <div className="space-y-3">
-                <Label>תזמון יומי</Label>
-                {members.map(m => (
-                  <div key={m.id} className="space-y-1">
-                    <p className="text-sm font-medium">{m.name}</p>
-                    <div className="flex flex-wrap gap-x-3 gap-y-1 pr-2">
-                      {DAY_NAMES.map((dayName, dayIndex) => {
-                        const checked = (dailySchedule[m.id] ?? []).includes(dayIndex)
-                        return (
-                          <label key={dayIndex} className="flex items-center gap-1.5 cursor-pointer">
-                            <input
-                              type="checkbox"
-                              aria-label={`${m.name} — ${dayName}`}
-                              checked={checked}
-                              onChange={e => {
-                                setDailySchedule(prev => {
-                                  const current = prev[m.id] ?? []
-                                  return {
-                                    ...prev,
-                                    [m.id]: e.target.checked
-                                      ? [...current, dayIndex]
-                                      : current.filter(d => d !== dayIndex),
-                                  }
-                                })
-                              }}
-                              className="h-4 w-4 rounded border-input"
-                            />
-                            <span className="text-xs">{dayName}</span>
-                          </label>
-                        )
-                      })}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {(recurrenceType === 'weekly' || recurrenceType === 'monthly') && (
+            {recurrenceType !== 'none' && (
               <div className="space-y-2">
-                <Label>משוייך ל</Label>
+                <Label>משוייך ל (השחקנים יבחרו את הימים בעצמם)</Label>
                 {members.map(m => (
                   <div key={m.id} className="flex items-center gap-2">
                     <input
                       type="checkbox"
                       id={`assignee-${m.id}`}
-                      checked={weeklyAssignees.includes(m.id)}
+                      checked={recurringAssignees.includes(m.id)}
                       onChange={e => {
                         if (e.target.checked) {
-                          setWeeklyAssignees(prev => [...prev, m.id])
+                          setRecurringAssignees(prev => [...prev, m.id])
                         } else {
-                          setWeeklyAssignees(prev => prev.filter(uid => uid !== m.id))
+                          setRecurringAssignees(prev => prev.filter(uid => uid !== m.id))
                         }
                       }}
                       className="h-4 w-4 rounded border-input"
