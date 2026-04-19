@@ -20,6 +20,9 @@ vi.mock('../../../../hooks/useCalendarAssignments', () => ({
 vi.mock('../../../../contexts/AuthContext', () => ({
   useAuth: () => ({ profile: { id: 'u1', name: 'דנה' } }),
 }))
+vi.mock('../../../../hooks/useChores', () => ({
+  useChores: vi.fn(() => ({ chores: [], loading: false, error: null, refetch: vi.fn() })),
+}))
 
 import { useCalendarAssignments } from '../../../../hooks/useCalendarAssignments'
 import WeeklyCalendarPage from '../WeeklyCalendarPage'
@@ -31,18 +34,18 @@ const ownPinned: AssignmentWithDetails = {
   week_start: '2026-03-29', calendar_day: 1, calendar_slot: 'morning',
   reminder_enabled: false, status: 'pending', archived: false,
   created_at: '2026-04-01T10:00:00Z', updated_at: '2026-04-01T10:00:00Z',
-  chores: { title: 'כלים', coin_value: 10 },
+  chores: { title: 'כלים', coin_value: 10, recurrence_type: 'none' },
   profiles: { name: 'דנה', avatar_url: null },
 }
 
 const ownUnscheduled: AssignmentWithDetails = {
   ...ownPinned, id: 'a2', calendar_day: null, calendar_slot: null,
-  chores: { title: 'שקים', coin_value: 5 },
+  chores: { title: 'שקים', coin_value: 5, recurrence_type: 'none' },
 }
 
 const otherPinned: AssignmentWithDetails = {
   ...ownPinned, id: 'a3', user_id: 'u2', calendar_day: 2, calendar_slot: 'afternoon',
-  chores: { title: 'אבק', coin_value: 8 },
+  chores: { title: 'אבק', coin_value: 8, recurrence_type: 'none' },
   profiles: { name: 'תום', avatar_url: null },
 }
 
@@ -146,7 +149,7 @@ describe('Player WeeklyCalendarPage', () => {
   })
 
   it('completed assignments are not shown', () => {
-    const completed: AssignmentWithDetails = { ...ownPinned, id: 'a4', status: 'completed', chores: { title: 'הושלמה', coin_value: 5 } }
+    const completed: AssignmentWithDetails = { ...ownPinned, id: 'a4', status: 'completed', chores: { title: 'הושלמה', coin_value: 5, recurrence_type: 'none' } }
     mockUseCalendarAssignments.mockReturnValue({
       // hook already filters completed, but page renders what it receives
       assignments: [completed], loading: false, error: null, refetch: mockRefetch,

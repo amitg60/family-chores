@@ -184,6 +184,7 @@ export default function WeeklyCalendarGrid({
 
   function handleDrop(e: React.DragEvent, day: number, slot: CalendarSlot) {
     e.preventDefault()
+    e.stopPropagation()
     setDragOverCell(null)
     const id = e.dataTransfer.getData('text/plain')
     if (id) onDropOnCell?.(day, slot, id)

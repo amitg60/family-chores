@@ -16,7 +16,7 @@ const fakeAssignment = {
   archived: false,
   created_at: '2026-04-01T10:00:00Z',
   updated_at: '2026-04-01T10:00:00Z',
-  chores: { title: 'כלים', coin_value: 10 },
+  chores: { title: 'כלים', coin_value: 10, recurrence_type: 'none' },
   profiles: { name: 'דנה', avatar_url: null },
 }
 
@@ -24,6 +24,7 @@ function makeFromMock(result: unknown) {
   return {
     select: vi.fn().mockReturnThis(),
     eq: vi.fn().mockReturnThis(),
+    neq: vi.fn().mockReturnThis(),
     order: vi.fn().mockResolvedValue(result),
   }
 }
@@ -35,6 +36,7 @@ describe('useCalendarAssignments', () => {
     mockFrom.mockReturnValue({
       select: vi.fn().mockReturnThis(),
       eq: vi.fn().mockReturnThis(),
+      neq: vi.fn().mockReturnThis(),
       order: vi.fn().mockReturnValue(new Promise(() => {})),
     })
     const { result } = renderHook(() => useCalendarAssignments())

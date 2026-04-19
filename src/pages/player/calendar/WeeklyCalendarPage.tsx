@@ -62,10 +62,10 @@ export default function WeeklyCalendarPage() {
     e.preventDefault()
     setUnscheduledDragOver(false)
     const id = e.dataTransfer.getData('text/plain')
-    // Recurring virtual cards can't be unpinned — only real assignments
     if (id && !id.startsWith(CHORE_DRAG_PREFIX)) {
       const a = assignments.find(x => x.id === id)
-      if (a) handleUnpin(a)
+      // Only unpin non-recurring assignments — recurring ones stay in their slot
+      if (a && a.chores.recurrence_type === 'none') handleUnpin(a)
     }
   }
 
