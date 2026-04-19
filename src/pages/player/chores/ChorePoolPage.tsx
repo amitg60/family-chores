@@ -4,11 +4,12 @@ import { useChores } from '../../../hooks/useChores'
 import { useChoreAssignments } from '../../../hooks/useChoreAssignments'
 import { useAuth } from '../../../contexts/AuthContext'
 import { supabase } from '../../../lib/supabase'
-import { getCurrentWeekStart } from '../../../lib/weekStart'
 import { Button } from '../../../components/ui/button'
 import { Badge } from '../../../components/ui/badge'
 import { Card, CardContent } from '../../../components/ui/card'
-import type { ChoreDifficulty } from '../../../types/database'
+import SlotPickerSheet from '../../../components/player/SlotPickerSheet'
+import { assignmentErrorMessage } from '../../../lib/assignmentErrors'
+import type { ChoreDifficulty, CalendarSlot } from '../../../types/database'
 
 const difficultyLabel: Record<ChoreDifficulty, string> = {
   easy: 'קל',
@@ -18,31 +19,65 @@ const difficultyLabel: Record<ChoreDifficulty, string> = {
 
 export default function ChorePoolPage() {
   const { profile } = useAuth()
-  const { chores, loading: choresLoading } = useChores()
+  const { chores, loading: choresLoading, refetch } = useChores()
   const { assignments } = useChoreAssignments(profile?.id)
   const navigate = useNavigate()
-  const [pickingId, setPickingId] = useState<string | null>(null)
+
+  const [pendingChoreId, setPendingChoreId] = useState<string | null>(null)
+  const [assigning, setAssigning] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const assignedChoreIds = new Set(assignments.map(a => a.chore_id))
-  const poolChores = chores.filter(
-    c => c.status === 'active' && c.assigned_to === null && !assignedChoreIds.has(c.id)
+  // Non-recurring chores the player already holds — hide them from the pool
+  const nonRecurringAssignedIds = new Set(
+    assignments
+      .filter(a => {
+        const chore = chores.find(c => c.id === a.chore_id)
+        return chore?.recurrence_type === 'none'
+      })
+      .map(a => a.chore_id)
   )
 
-  async function pickUpChore(choreId: string) {
-    if (!profile) return
-    setPickingId(choreId)
+  const poolChores = chores.filter(c => {
+    if (c.status !== 'active' || !c.is_pool_visible) return false
+    if (c.recurrence_type === 'none') return !nonRecurringAssignedIds.has(c.id)
+    return true
+  })
+
+  const pendingChore = pendingChoreId ? chores.find(c => c.id === pendingChoreId) ?? null : null
+
+  async function handleConfirm({
+    calendarDay,
+    calendarSlot,
+  }: {
+    calendarDay: number
+    calendarSlot: CalendarSlot | null
+  }) {
+    if (!pendingChoreId || !pendingChore) return
+    setAssigning(true)
     setError(null)
-    const { error } = await supabase.from('chore_assignments').insert({
-      chore_id: choreId,
-      user_id: profile.id,
-      week_start: getCurrentWeekStart(),
-      status: 'pending',
-      archived: false,
-      reminder_enabled: false,
+
+    const { data, error: fnError } = await supabase.functions.invoke('self-assign-chore', {
+      body: {
+        chore_id: pendingChoreId,
+        calendar_day: calendarDay,
+        calendar_slot: calendarSlot,
+      },
     })
-    setPickingId(null)
-    if (error) { setError('שגיאה בבחירת המשימה') } else { navigate('/player') }
+
+    setAssigning(false)
+    setPendingChoreId(null)
+
+    if (fnError || !data?.ok) {
+      const code = fnError?.message ?? 'INTERNAL_ERROR'
+      setError(assignmentErrorMessage(code))
+      return
+    }
+
+    if (pendingChore.recurrence_type === 'none') {
+      navigate('/player')
+    } else {
+      refetch()
+    }
   }
 
   return (
@@ -70,19 +105,36 @@ export default function ChorePoolPage() {
                   <div className="flex items-center gap-2 mt-1">
                     <span className="text-sm text-muted-foreground">{chore.coin_value} מטבעות</span>
                     <Badge variant="secondary">{difficultyLabel[chore.difficulty]}</Badge>
+                    {chore.recurrence_type !== 'none' && (
+                      <Badge variant="outline" className="text-xs">🔁</Badge>
+                    )}
                   </div>
                 </div>
                 <Button
                   size="sm"
-                  disabled={pickingId === chore.id}
-                  onClick={() => pickUpChore(chore.id)}
+                  variant="outline"
+                  disabled={assigning && pendingChoreId === chore.id}
+                  onClick={() => {
+                    setError(null)
+                    setPendingChoreId(chore.id)
+                  }}
+                  aria-label={`בחר ${chore.title}`}
                 >
-                  {pickingId === chore.id ? 'שומר...' : 'קח משימה'}
+                  ☐ בחר
                 </Button>
               </CardContent>
             </Card>
           ))}
         </div>
+      )}
+
+      {pendingChore && (
+        <SlotPickerSheet
+          open={true}
+          choreTitle={pendingChore.title}
+          onConfirm={handleConfirm}
+          onCancel={() => setPendingChoreId(null)}
+        />
       )}
     </div>
   )

@@ -2,8 +2,6 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
-import '../../../../test/mocks/supabase'
-import { mockFrom } from '../../../../test/mocks/supabase'
 
 vi.mock('../../../../hooks/useChores', () => ({
   useChores: vi.fn(() => ({ chores: [], loading: false, error: null, refetch: vi.fn() })),
@@ -14,8 +12,10 @@ vi.mock('../../../../hooks/useChoreAssignments', () => ({
 vi.mock('../../../../contexts/AuthContext', () => ({
   useAuth: () => ({ profile: { id: 'p1', family_id: 'f1' } }),
 }))
-vi.mock('../../../../lib/weekStart', () => ({
-  getCurrentWeekStart: vi.fn(() => '2026-04-05'),
+
+const mockFunctions = vi.fn()
+vi.mock('../../../../lib/supabase', () => ({
+  supabase: { functions: { invoke: (...args: unknown[]) => mockFunctions(...args) } },
 }))
 
 const mockNavigate = vi.fn()
@@ -31,11 +31,25 @@ import ChorePoolPage from '../ChorePoolPage'
 const mockUseChores = vi.mocked(useChores)
 const mockUseChoreAssignments = vi.mocked(useChoreAssignments)
 
-const openChore = {
+const nonRecurringChore = {
   id: 'c1', family_id: 'f1', title: 'כלי מטבח', coin_value: 10,
   difficulty: 'easy' as const, assigned_to: null, recurrence_type: 'none' as const,
-  status: 'active' as const, description: null, proposed_by: null,
-  approved_by: null, due_date: null, last_traded_price: null,
+  status: 'active' as const, is_pool_visible: true,
+  description: null, proposed_by: null, approved_by: null,
+  due_date: null, last_traded_price: null,
+  created_at: '2026-04-05T00:00:00Z', updated_at: '2026-04-05T00:00:00Z',
+}
+
+const recurringChore = {
+  ...nonRecurringChore,
+  id: 'c2', title: 'להאכיל חיות', recurrence_type: 'daily' as const,
+  is_pool_visible: true,
+}
+
+const existingAssignment = {
+  id: 'a1', chore_id: 'c2', user_id: 'p1', week_start: '2026-04-13',
+  calendar_day: null, calendar_slot: null, reminder_enabled: false,
+  status: 'pending' as const, archived: false, assigned_by: 'p1',
   created_at: '2026-04-05T00:00:00Z', updated_at: '2026-04-05T00:00:00Z',
 }
 
@@ -55,46 +69,71 @@ describe('ChorePoolPage', () => {
     expect(screen.getByRole('status')).toBeInTheDocument()
   })
 
-  it('shows empty state when no open chores', () => {
+  it('shows empty state when no visible chores', () => {
     mockUseChores.mockReturnValue({ chores: [], loading: false, error: null, refetch: vi.fn() })
     renderPoolPage()
     expect(screen.getByText('אין משימות זמינות כרגע.')).toBeInTheDocument()
   })
 
-  it('shows open chore with title, coin value, and difficulty', () => {
-    mockUseChores.mockReturnValue({ chores: [openChore], loading: false, error: null, refetch: vi.fn() })
+  it('shows pool chore with checkmark button', () => {
+    mockUseChores.mockReturnValue({ chores: [nonRecurringChore], loading: false, error: null, refetch: vi.fn() })
     renderPoolPage()
     expect(screen.getByText('כלי מטבח')).toBeInTheDocument()
-    expect(screen.getByText(/10 מטבעות/)).toBeInTheDocument()
-    expect(screen.getByText('קל')).toBeInTheDocument()
+    // Button has aria-label containing "בחר" and the chore title
+    expect(screen.getByRole('button', { name: /בחר כלי מטבח/ })).toBeInTheDocument()
   })
 
-  it('hides chores the player already picked up this week', () => {
-    const existingAssignment = {
-      id: 'a1', chore_id: 'c1', user_id: 'p1', week_start: '2026-04-05',
-      calendar_day: null, calendar_slot: null, reminder_enabled: false,
-      status: 'pending' as const, archived: false,
-      created_at: '2026-04-05T00:00:00Z', updated_at: '2026-04-05T00:00:00Z',
-    }
-    mockUseChores.mockReturnValue({ chores: [openChore], loading: false, error: null, refetch: vi.fn() })
-    mockUseChoreAssignments.mockReturnValue({ assignments: [existingAssignment], loading: false, error: null, refetch: vi.fn() })
+  it('hides non-recurring chore when is_pool_visible is false', () => {
+    const hidden = { ...nonRecurringChore, is_pool_visible: false }
+    mockUseChores.mockReturnValue({ chores: [hidden], loading: false, error: null, refetch: vi.fn() })
     renderPoolPage()
     expect(screen.queryByText('כלי מטבח')).not.toBeInTheDocument()
   })
 
-  it('picks up chore on click and navigates to /player', async () => {
-    mockUseChores.mockReturnValue({ chores: [openChore], loading: false, error: null, refetch: vi.fn() })
-    mockFrom.mockReturnValue({ insert: vi.fn().mockResolvedValue({ error: null }) })
+  it('shows recurring chore even when player already has an assignment for it', () => {
+    mockUseChores.mockReturnValue({ chores: [recurringChore], loading: false, error: null, refetch: vi.fn() })
+    mockUseChoreAssignments.mockReturnValue({ assignments: [existingAssignment], loading: false, error: null, refetch: vi.fn() })
     renderPoolPage()
-    await userEvent.click(screen.getByRole('button', { name: 'קח משימה' }))
-    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/player'))
+    expect(screen.getByText('להאכיל חיות')).toBeInTheDocument()
   })
 
-  it('shows error when pick up fails', async () => {
-    mockUseChores.mockReturnValue({ chores: [openChore], loading: false, error: null, refetch: vi.fn() })
-    mockFrom.mockReturnValue({ insert: vi.fn().mockResolvedValue({ error: { message: 'fail' } }) })
+  it('opens slot picker sheet when checkmark button clicked', async () => {
+    mockUseChores.mockReturnValue({ chores: [nonRecurringChore], loading: false, error: null, refetch: vi.fn() })
     renderPoolPage()
-    await userEvent.click(screen.getByRole('button', { name: 'קח משימה' }))
-    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('שגיאה בבחירת המשימה'))
+    await userEvent.click(screen.getByRole('button', { name: /בחר כלי מטבח/ }))
+    expect(screen.getByRole('button', { name: 'שייך אליי' })).toBeInTheDocument()
+  })
+
+  it('calls self-assign-chore Edge Function on confirm and navigates for non-recurring', async () => {
+    mockUseChores.mockReturnValue({ chores: [nonRecurringChore], loading: false, error: null, refetch: vi.fn() })
+    mockFunctions.mockResolvedValue({ data: { ok: true }, error: null })
+    renderPoolPage()
+    await userEvent.click(screen.getByRole('button', { name: /בחר כלי מטבח/ }))
+    await userEvent.click(screen.getByRole('button', { name: 'שייך אליי' }))
+    await waitFor(() => {
+      expect(mockFunctions).toHaveBeenCalledWith('self-assign-chore', expect.objectContaining({
+        body: expect.objectContaining({ chore_id: 'c1' }),
+      }))
+      expect(mockNavigate).toHaveBeenCalledWith('/player')
+    })
+  })
+
+  it('stays on pool page after self-assigning recurring chore', async () => {
+    mockUseChores.mockReturnValue({ chores: [recurringChore], loading: false, error: null, refetch: vi.fn() })
+    mockFunctions.mockResolvedValue({ data: { ok: true }, error: null })
+    renderPoolPage()
+    await userEvent.click(screen.getByRole('button', { name: /בחר להאכיל חיות/ }))
+    await userEvent.click(screen.getByRole('button', { name: 'שייך אליי' }))
+    await waitFor(() => expect(mockFunctions).toHaveBeenCalled())
+    expect(mockNavigate).not.toHaveBeenCalled()
+  })
+
+  it('shows Hebrew error message when Edge Function returns error', async () => {
+    mockUseChores.mockReturnValue({ chores: [nonRecurringChore], loading: false, error: null, refetch: vi.fn() })
+    mockFunctions.mockResolvedValue({ data: null, error: { message: 'CHORE_TAKEN' } })
+    renderPoolPage()
+    await userEvent.click(screen.getByRole('button', { name: /בחר כלי מטבח/ }))
+    await userEvent.click(screen.getByRole('button', { name: 'שייך אליי' }))
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('המשימה כבר נלקחה על ידי שחקן אחר'))
   })
 })
