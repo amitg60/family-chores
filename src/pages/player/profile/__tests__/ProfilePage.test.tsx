@@ -43,6 +43,17 @@ vi.mock('../../../../hooks/useCoinTransactions', () => ({
   })),
 }))
 
+vi.mock('../../../../hooks/useApprovalRate', () => ({
+  useApprovalRate: vi.fn(() => ({
+    approved: 8,
+    rejected: 2,
+    total: 10,
+    rate: 80.0,
+    loading: false,
+    error: null,
+  })),
+}))
+
 import { useCoinTransactions } from '../../../../hooks/useCoinTransactions'
 import ProfilePage from '../ProfilePage'
 
@@ -132,5 +143,18 @@ describe('ProfilePage', () => {
     })
     renderPage()
     expect(screen.getByRole('alert')).toHaveTextContent('שגיאה בטעינה')
+  })
+
+  it('shows trust level label for the current level', () => {
+    renderPage()
+    // trust_level is 3 in the auth mock → label is 'אמין'
+    expect(screen.getByText(/אמין/)).toBeInTheDocument()
+  })
+
+  it('shows approval rate card when trust_level is 3 or higher', () => {
+    renderPage()
+    // trust_level is 3 in the auth mock → card should render
+    expect(screen.getByText(/אחוז אישורים/)).toBeInTheDocument()
+    expect(screen.getByText(/80/)).toBeInTheDocument()
   })
 })

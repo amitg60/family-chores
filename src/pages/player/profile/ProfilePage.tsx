@@ -4,6 +4,7 @@ import { useAuth } from '../../../contexts/AuthContext'
 import { useAchievements } from '../../../hooks/useAchievements'
 import { useCoinTransactions } from '../../../hooks/useCoinTransactions'
 import { useFamily } from '../../../hooks/useFamily'
+import { useApprovalRate } from '../../../hooks/useApprovalRate'
 import FamilyAvatarUpload from '../../../components/shared/FamilyAvatarUpload'
 import AliasProposalDialog from '../../../components/shared/AliasProposalDialog'
 import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card'
@@ -25,6 +26,23 @@ const REASON_LABEL: Record<CoinReason, string> = {
 }
 
 type Tab = 'coins' | 'achievements' | 'trades'
+
+const TRUST_LABELS = ['', 'מתחיל', 'מתקדם', 'אמין', 'בכיר', 'אלוף/פה']
+
+function ApprovalRateCard() {
+  const { approved, total, rate, loading, error } = useApprovalRate()
+  if (loading) return <div className="text-xs text-muted-foreground">טוען...</div>
+  if (error) return null
+  return (
+    <Card>
+      <CardContent className="py-3 text-center space-y-1">
+        <p className="text-xs text-muted-foreground">אחוז אישורים</p>
+        <p className="text-2xl font-bold">{rate !== null ? `${rate}%` : '—'}</p>
+        <p className="text-xs text-muted-foreground">{approved} אושרו מתוך {total}</p>
+      </CardContent>
+    </Card>
+  )
+}
 
 export default function ProfilePage() {
   const navigate = useNavigate()
@@ -70,7 +88,7 @@ export default function ProfilePage() {
         <p className="text-sm text-muted-foreground"><span aria-hidden="true">🪙</span> {profile?.coin_balance ?? 0} מטבעות</p>
         <div className="w-full max-w-xs space-y-1">
           <div className="flex justify-between text-xs text-muted-foreground">
-            <span>רמת אמון</span>
+            <span>רמת אמון: {TRUST_LABELS[profile?.trust_level ?? 0]}</span>
             <span>{profile?.trust_level ?? 0} / 5</span>
           </div>
           <div className="h-2 rounded-full bg-muted">
@@ -79,6 +97,7 @@ export default function ProfilePage() {
               style={{ width: `${((profile?.trust_level ?? 0) / 5) * 100}%` }}
             />
           </div>
+          {(profile?.trust_level ?? 0) >= 3 && <ApprovalRateCard />}
         </div>
       </div>
 
