@@ -29,7 +29,7 @@
 - **No change:** `approved_count` is 7, 8, or 9 out of 10 (70% ≤ rate < 90%).
 - Recalculation fires after every `approve_completion` and `reject_completion` call.
 
-**Admin override interaction:** If an admin manually sets a player's trust level via `set_trust_level`, the next automatic recalculation (triggered by the next completion review) may override it if the approval rate crosses a threshold. There is no lock-out mechanism — the automatic rule always applies after every review. Admins who want a level to persist regardless of approval rate must continue to re-apply it manually.
+**Admin override interaction — sharp behavioral rule:** If an admin manually sets a player's trust level via `set_trust_level`, that value is **not protected**. The very next completion review (approve or reject, by anyone) triggers `recalculate_trust_level`, which will immediately overwrite the admin's value if the last-10 window satisfies a threshold. For example: admin raises a player to level 3 at 17:00; a completion is approved at 17:05; the window shows 9/10 approved → player is auto-raised to level 4, overriding the admin's intent. There is no lock mechanism by design — approval rate is the authoritative signal. Admins who need a level to persist must re-apply it after each relevant review, or accept that the automatic rule governs.
 
 ---
 
@@ -124,39 +124,40 @@ REVOKE EXECUTE ON FUNCTION recalculate_trust_level(uuid) FROM anon;
 
 ### Modify `approve_completion`
 
-Replace the existing non-admin authorization block with a unified check that verifies same-family membership for all non-admin approval paths:
+Replace the existing non-admin authorization block with four flat, sequentially evaluated rules. Each rule is a standalone guard that raises immediately if violated. Reading top-to-bottom answers: "can this caller approve this completion?"
 
 ```sql
--- Replaces the existing non-admin auth block entirely:
+-- Replaces the existing non-admin auth block entirely.
+-- Four flat rules, evaluated in order. Each raises on violation.
 IF NOT is_admin() THEN
   DECLARE
     v_caller_family uuid;
     v_caller_trust  integer;
   BEGIN
-    -- Always fetch caller's profile server-side; never trust client input
+    -- Rule 1: caller must have a profile.
     SELECT family_id, trust_level INTO v_caller_family, v_caller_trust
     FROM profiles WHERE id = auth.uid();
-
     IF NOT FOUND THEN
-      RAISE EXCEPTION 'Caller profile not found';
+      RAISE EXCEPTION 'Not authorized: caller has no profile';
     END IF;
 
-    -- All non-admin approvals require same-family membership
+    -- Rule 2: caller's trust level must be at least 4.
+    --   (Levels 1–3 cannot approve any completion.)
+    IF COALESCE(v_caller_trust, 1) < 4 THEN
+      RAISE EXCEPTION 'Not authorized: trust level too low to approve completions';
+    END IF;
+
+    -- Rule 3: caller must be in the same family as the chore.
+    --   (Applies to both level 4 and level 5.)
     IF v_caller_family IS NULL OR v_caller_family <> v_chore.family_id THEN
-      RAISE EXCEPTION 'Not authorized to approve completions outside your family';
+      RAISE EXCEPTION 'Not authorized: approver is not in the same family as this chore';
     END IF;
 
-    -- Level 4: self-approval only
-    -- Level 5: can approve any family member
-    IF COALESCE(v_caller_trust, 1) >= 5 THEN
-      NULL; -- family check above is sufficient for level 5
-    ELSIF COALESCE(v_caller_trust, 1) >= 4 THEN
-      IF v_completion.completed_by <> auth.uid() THEN
-        RAISE EXCEPTION 'Not authorized to approve other players completions at trust level 4';
-      END IF;
-    ELSE
-      RAISE EXCEPTION 'Not authorized to approve completions';
+    -- Rule 4: level 4 may only self-approve; level 5 may approve anyone in the family.
+    IF v_caller_trust = 4 AND v_completion.completed_by <> auth.uid() THEN
+      RAISE EXCEPTION 'Not authorized: trust level 4 may only approve own completions';
     END IF;
+    -- (If v_caller_trust >= 5 and rules 1–3 pass, no further restriction applies.)
   END;
 END IF;
 ```
@@ -180,7 +181,14 @@ PERFORM recalculate_trust_level(v_completion.completed_by);
 
 ### New RPC: `get_my_approval_rate()`
 
-Returns the calling player's all-time approval stats. `SECURITY DEFINER`; uses `auth.uid()` internally so players can only ever fetch their own data. Returns an empty result set (not an error) if the caller is unauthenticated or has no profile, to avoid leaking information.
+Returns the calling player's **all-time** approval stats for display purposes on the profile page. This intentionally differs from the recalculation window:
+
+- **Recalculation** uses the last 10 reviewed completions — a rolling window that keeps trust level responsive to recent behavior.
+- **Display** uses all-time totals — gives the player a full picture of their track record, not just the most recent 10. Showing "47 approved out of 52 total" is more motivating and informative than showing the 10-item window that drives promotion.
+
+The two values can diverge: a player may have a 90% all-time rate but be stuck at 8/10 in the recent window (and thus not promoted yet). This is expected and correct behavior.
+
+`SECURITY DEFINER`; uses `auth.uid()` internally so players can only ever fetch their own data. Returns an empty result set (not an error) if the caller is unauthenticated or has no profile, to avoid leaking information.
 
 ```sql
 CREATE OR REPLACE FUNCTION get_my_approval_rate()
@@ -258,5 +266,5 @@ No structural changes. The existing `set_trust_level` RPC and +/− buttons stay
 | Player viewing another player's approval rate | `get_my_approval_rate()` uses `auth.uid()` only; no user-supplied ID |
 | Unauthenticated call to `get_my_approval_rate()` | Explicit `auth.uid() IS NULL` guard returns empty result set |
 | Trust level written from client | Impossible — only `set_trust_level` (admin-only RPC) and `recalculate_trust_level` (internal, revoked) can write `trust_level` |
-| Notification insert bypassing RLS | Intentional — function runs as postgres owner (SECURITY DEFINER), same pattern as all other notification inserts in this codebase |
-| Admin manual override being auto-overridden | Documented behavior: auto-recalculation fires after every review regardless of how the current level was set. No lock mechanism exists by design. |
+| Notification insert bypassing RLS | Intentional and consistent — every notification insert in this codebase (`approve_completion`, `reject_completion`, trigger functions) runs inside a SECURITY DEFINER context as the postgres owner. This is the established pattern: server-side RPCs are trusted to insert notifications on behalf of users; the RLS policy on `notifications` governs only direct client reads/writes, not internal server writes. `recalculate_trust_level` follows the same pattern deliberately. |
+| Admin manual override being auto-overridden | Sharp behavioral rule — see "Admin override interaction" section above. Any completion review immediately re-runs recalculation and may overwrite an admin's manual value. No lock mechanism exists by design. |
