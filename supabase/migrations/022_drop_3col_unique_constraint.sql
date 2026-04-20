@@ -11,7 +11,7 @@ BEGIN
   WHERE rel.relname = 'chore_assignments'
     AND pc.contype = 'u'
     AND (
-      SELECT array_agg(a.attname ORDER BY a.attname)
+      SELECT array_agg(a.attname::text ORDER BY a.attname)
       FROM pg_attribute a
       WHERE a.attrelid = pc.conrelid
         AND a.attnum = ANY(pc.conkey)
