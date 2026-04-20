@@ -61,18 +61,21 @@ BEGIN
 
   -- Notification insert runs as the postgres owner (SECURITY DEFINER), bypassing RLS.
   -- This is intentional and consistent with all other server-side notification inserts.
-  INSERT INTO notifications (user_id, family_id, type, title_he, body_he, related_entity_id)
-  VALUES (
-    p_user_id,
-    v_family_id,
-    'trust_level_changed',
-    CASE WHEN v_new_level > v_level THEN 'עלית ברמת האמון!' ELSE 'רמת האמון ירדה' END,
-    CASE WHEN v_new_level > v_level
-      THEN 'ההורים מעריכים את התייחסותך למטלות ולכן, עלית דרגה ברמת האמון'
-      ELSE 'נראה כי לא התייחסת ברצינות במשימות, הפעם דרגת האמון ירדה, אנחנו יודעים שבפעם הבאה תצליח/י'
-    END,
-    NULL
-  );
+  -- Guard against NULL family_id: notifications.family_id is NOT NULL, so skip if user has no family.
+  IF v_family_id IS NOT NULL THEN
+    INSERT INTO notifications (user_id, family_id, type, title_he, body_he, related_entity_id)
+    VALUES (
+      p_user_id,
+      v_family_id,
+      'trust_level_changed',
+      CASE WHEN v_new_level > v_level THEN 'עלית ברמת האמון!' ELSE 'רמת האמון ירדה' END,
+      CASE WHEN v_new_level > v_level
+        THEN 'ההורים מעריכים את התייחסותך למטלות ולכן, עלית דרגה ברמת האמון'
+        ELSE 'נראה כי לא התייחסת ברצינות במשימות, הפעם דרגת האמון ירדה, אנחנו יודעים שבפעם הבאה תצליח/י'
+      END,
+      NULL
+    );
+  END IF;
 END;
 $$;
 
