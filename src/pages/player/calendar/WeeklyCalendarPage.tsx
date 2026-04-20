@@ -28,41 +28,38 @@ export default function WeeklyCalendarPage() {
     c => c.status === 'active' && c.is_pool_visible && c.recurrence_type !== 'none'
        && !unscheduledChoreIds.has(c.id)
   )
-  console.log('[calendar-page] ownUnscheduled=%o virtualCards=%o assignments=%o', ownUnscheduled.length, recurringVirtualCards.length, assignments.length)
-
   async function handleDropOnCell(day: number, slot: CalendarSlot, id: string) {
-    console.log('[drop] day=%o slot=%o id=%o', day, slot, id)
     if (id.startsWith(CHORE_DRAG_PREFIX)) {
       const choreId = id.slice(CHORE_DRAG_PREFIX.length)
-      const { data, error } = await supabase.functions.invoke('self-assign-chore', {
+      await supabase.functions.invoke('self-assign-chore', {
         body: { chore_id: choreId, calendar_day: day, calendar_slot: slot },
       })
-      const errBody = error ? await (error as any).context?.text?.() : null
-      console.log('[drop] invoke result:', { data, error, errBody })
     } else {
       const assignment = assignments.find(a => a.id === id)
-      console.log('[drop] assignment found:', assignment)
       if (assignment && assignment.chores.recurrence_type !== 'none' && assignment.calendar_day !== null) {
-        const { data, error } = await supabase.functions.invoke('self-assign-chore', {
+        await supabase.functions.invoke('self-assign-chore', {
           body: { chore_id: assignment.chore_id, calendar_day: day, calendar_slot: slot },
         })
-        console.log('[drop] invoke (copy) result:', { data, error })
       } else {
-        const { error } = await supabase
+        await supabase
           .from('chore_assignments')
           .update({ calendar_day: day, calendar_slot: slot })
           .eq('id', id)
-        console.log('[drop] update result:', { error })
       }
     }
     refetch()
   }
 
   async function handleUnpin(a: AssignmentWithDetails) {
-    await supabase
-      .from('chore_assignments')
-      .update({ calendar_day: null, calendar_slot: null })
-      .eq('id', a.id)
+    if (a.chores.recurrence_type !== 'none') {
+      // Recurring: delete the slot assignment so the virtual card reappears
+      await supabase.from('chore_assignments').delete().eq('id', a.id)
+    } else {
+      await supabase
+        .from('chore_assignments')
+        .update({ calendar_day: null, calendar_slot: null })
+        .eq('id', a.id)
+    }
     refetch()
   }
 

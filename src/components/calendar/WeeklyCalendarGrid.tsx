@@ -187,7 +187,6 @@ export default function WeeklyCalendarGrid({
     e.stopPropagation()
     setDragOverCell(null)
     const id = e.dataTransfer.getData('text/plain')
-    console.log('[grid-drop] day=%o slot=%o id=%o types=%o', day, slot, id, [...e.dataTransfer.types])
     if (id) onDropOnCell?.(day, slot, id)
   }
 

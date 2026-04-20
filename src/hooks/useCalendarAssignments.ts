@@ -40,18 +40,10 @@ export function useCalendarAssignments(): UseCalendarAssignmentsResult {
       .order('created_at', { ascending: true })
     if (!mountedRef.current) return
     if (error) {
-      console.log('[calendar] fetch error:', error)
       setError(error.message)
     } else {
-      console.log('[calendar] fetched', data?.length, 'assignments, week_start=', weekStart, data)
       setAssignments((data as AssignmentWithDetails[]) ?? [])
     }
-    // Temp debug: all rows for chore 39e7bdd6 across ALL weeks to find hidden conflict
-    const { data: raw, error: rawErr } = await supabase
-      .from('chore_assignments')
-      .select('id, chore_id, user_id, week_start, calendar_day, calendar_slot, status, archived')
-      .eq('chore_id', '39e7bdd6-3ac4-4980-af6e-5a3b2f41bc15')
-    console.log('[calendar] raw ALL-weeks for chore 39e7bdd6:', rawErr ?? raw)
     setLoading(false)
   }, [])
 
