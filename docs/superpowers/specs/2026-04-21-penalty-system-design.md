@@ -135,7 +135,9 @@ BEGIN
       -- Defends against cross-family deduction if join logic above ever has a bug.
       SELECT family_id INTO v_user_family FROM profiles WHERE id = r.user_id;
       IF v_user_family IS DISTINCT FROM v_policy.family_id THEN
-        CONTINUE;  -- skip silently — log if observability is added later
+        RAISE LOG 'apply_weekly_penalties: skipping assignment % — user % family % does not match policy family %',
+          r.assignment_id, r.user_id, v_user_family, v_policy.family_id;
+        CONTINUE;
       END IF;
 
       v_deduction := CASE
@@ -256,6 +258,8 @@ END;
 $$;
 ```
 
+**Note on coin ceiling:** `profiles.coins` has no upper-bound constraint in the schema. Restoring coins via `coins + coin_deduction` is unconditionally safe — no cap can cause a reversal to silently fail or truncate.
+
 ### New RPC: `update_penalty_policy(p_day_deduction int, p_week_deduction int)`
 
 Admin-only. UPSERTs policy row for caller's family.
@@ -301,6 +305,29 @@ SELECT cron.schedule(
   'SELECT apply_weekly_penalties()'
 );
 ```
+
+### pg_cron Monitoring
+
+pg_cron writes run history to `cron.job_run_details`. Admins or an on-call process can check:
+
+```sql
+SELECT jobid, runid, job_pid, database, username,
+       command, status, return_message, start_time, end_time
+FROM cron.job_run_details
+WHERE jobid = (SELECT jobid FROM cron.job WHERE jobname = 'weekly-penalties')
+ORDER BY start_time DESC
+LIMIT 10;
+```
+
+- `status = 'succeeded'` = normal run
+- `status = 'failed'` + `return_message` = error details
+- No row for expected Saturday = job did not fire (pg_cron service issue)
+
+Supabase does not expose built-in alerting for pg_cron failures. For now, monitoring is manual (periodic review of `cron.job_run_details`). Future improvement: add a lightweight health-check Edge Function that queries this table and sends a notification if the last Saturday run is missing or failed.
+
+### Batch Processing Scalability Note
+
+`apply_weekly_penalties()` does a sequential per-family, per-assignment loop. For a family chore app with O(10) families and O(100) overdue assignments per run, this is acceptable. If load grows significantly, the inner loop can be replaced with a single set-based `INSERT ... SELECT` + `UPDATE ... FROM` pattern, eliminating the cursor overhead. No change needed now — document as a known optimization path.
 
 ---
 
