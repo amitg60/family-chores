@@ -240,3 +240,34 @@ export interface ChoreSchedule {
   day_of_week: number | null  // null = weekly/monthly, 0–6 (0=Sun) = daily
   assigned_to: string
 }
+
+export interface PenaltyWithChore {
+  id: string
+  chore_assignment_id: string
+  user_id: string
+  coin_deduction: number
+  reason: string
+  waived_by: string | null
+  waived_at: string | null
+  applied_at: string
+  batch_id: string | null
+  chore_assignments: {
+    chore_id: string
+    chores: { title: string }
+  }
+}
+
+export interface AdminPenaltyRow extends PenaltyWithChore {
+  profiles: { name: string; avatar_url: string | null }
+}
+
+export interface OverdueAssignmentWithDetails {
+  id: string
+  chore_id: string
+  user_id: string
+  calendar_day: number | null
+  calendar_slot: string | null
+  penalty_waived: boolean
+  chores: { title: string; coin_value: number }
+  profiles: { name: string; avatar_url: string | null }
+}
