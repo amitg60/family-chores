@@ -59,6 +59,21 @@ ALTER TABLE chore_assignments
   ADD COLUMN penalty_waived boolean NOT NULL DEFAULT false;
 ```
 
+### Migration: `penalties` — confirm columns + add `batch_id`
+
+`waived_by` and `waived_at` are confirmed in the existing schema. Add `batch_id` for audit:
+
+```sql
+-- waived_by uuid REFERENCES profiles(id) — already exists
+-- waived_at timestamptz                  — already exists
+-- applied_at timestamptz DEFAULT now()   — already exists
+
+ALTER TABLE penalties
+  ADD COLUMN IF NOT EXISTS batch_id uuid;
+```
+
+`batch_id` groups all penalty rows from a single `apply_weekly_penalties()` run, enabling audit queries like "show everything deducted in run X".
+
 ### Migration: `penalty_policy` defaults
 
 ```sql
@@ -79,6 +94,8 @@ ON CONFLICT DO NOTHING;
 
 SECURITY DEFINER; runs as postgres owner. REVOKE'd from all client roles — only pg_cron (postgres) can call it.
 
+`FOR UPDATE` on `penalty_policy` acquires a row-level lock per family for the duration of the function. This prevents a second overlapping pg_cron invocation (e.g., from a manual trigger or clock drift) from double-processing the same family's overdue assignments concurrently.
+
 ```sql
 CREATE OR REPLACE FUNCTION apply_weekly_penalties()
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER
@@ -88,8 +105,11 @@ DECLARE
   r            RECORD;
   v_policy     penalty_policy%ROWTYPE;
   v_deduction  integer;
+  v_batch_id   uuid := gen_random_uuid();  -- shared across all rows in this run
+  v_user_family uuid;
 BEGIN
-  -- Process each family separately
+  -- FOR UPDATE: prevents overlapping pg_cron runs from double-deducting.
+  -- Each family's row is locked until this transaction commits.
   FOR v_policy IN SELECT * FROM penalty_policy FOR UPDATE LOOP
     FOR r IN
       SELECT
@@ -111,6 +131,13 @@ BEGIN
           WHERE p.chore_assignment_id = ca.id
         )
     LOOP
+      -- Family-scope safety check: verify the assignment user belongs to this family.
+      -- Defends against cross-family deduction if join logic above ever has a bug.
+      SELECT family_id INTO v_user_family FROM profiles WHERE id = r.user_id;
+      IF v_user_family IS DISTINCT FROM v_policy.family_id THEN
+        CONTINUE;  -- skip silently — log if observability is added later
+      END IF;
+
       v_deduction := CASE
         WHEN r.calendar_day IS NOT NULL THEN v_policy.overdue_day_deduction
         ELSE v_policy.overdue_week_deduction
@@ -123,8 +150,8 @@ BEGIN
       WHERE id = r.user_id;
 
       -- Insert penalty row (notification fires via trg_notify_penalty_applied)
-      INSERT INTO penalties (chore_assignment_id, user_id, coin_deduction, reason)
-      VALUES (r.assignment_id, r.user_id, v_deduction, 'overdue');
+      INSERT INTO penalties (chore_assignment_id, user_id, coin_deduction, reason, batch_id)
+      VALUES (r.assignment_id, r.user_id, v_deduction, 'overdue', v_batch_id);
     END LOOP;
   END LOOP;
 END;
@@ -362,4 +389,7 @@ New "היסטוריית הפסדים" section at bottom:
 | Client reading other players' penalties | RLS on `penalties` allows only own rows to authenticated user |
 | Policy update with invalid values | `p_day_deduction <= 0 OR p_week_deduction <= 0` raises exception |
 | Admin with no family calling policy update | `family_id IS NULL` guard raises exception |
-| Cross-family penalty application in batch | `EXISTS (chores WHERE family_id = v_policy.family_id)` scopes each family's batch |
+| Cross-family penalty application in batch | `EXISTS (chores WHERE family_id = v_policy.family_id)` scopes each family's batch; secondary `profiles.family_id = v_policy.family_id` check on `r.user_id` inside the loop as defense-in-depth |
+| Overlapping pg_cron runs double-deducting | `FOR UPDATE` on `penalty_policy` locks family row — concurrent invocation blocks until first transaction commits; `NOT EXISTS` guard prevents double-penalty regardless |
+| Audit — which penalties came from which run | `batch_id uuid` column on `penalties` groups all rows from a single `apply_weekly_penalties()` call |
+| `waived_by` / `waived_at` assumed to exist | Confirmed in existing schema; migration adds `batch_id` only, with explicit comment confirming existing columns |
