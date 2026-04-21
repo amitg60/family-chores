@@ -2,7 +2,7 @@
 
 -- ── 1. chore_assignments: pre-batch waiver flag ─────────────────────────────
 ALTER TABLE chore_assignments
-  ADD COLUMN penalty_waived boolean NOT NULL DEFAULT false;
+  ADD COLUMN IF NOT EXISTS penalty_waived boolean NOT NULL DEFAULT false;
 
 -- ── 2. penalties: batch audit trail ────────────────────────────────────────
 -- waived_by, waived_at, applied_at already exist in schema.
@@ -19,7 +19,7 @@ ALTER TABLE penalty_policy
 INSERT INTO penalty_policy (family_id, overdue_day_deduction, overdue_week_deduction)
 SELECT id, 1, 5
 FROM families
-WHERE id NOT IN (SELECT family_id FROM penalty_policy WHERE family_id IS NOT NULL)
+WHERE NOT EXISTS (SELECT 1 FROM penalty_policy pp WHERE pp.family_id = families.id)
 ON CONFLICT DO NOTHING;
 
 -- ── 4. apply_weekly_penalties() ────────────────────────────────────────────
@@ -33,6 +33,7 @@ DECLARE
   v_deduction   integer;
   v_batch_id    uuid := gen_random_uuid();
   v_user_family uuid;
+  v_penalty_id  uuid;
 BEGIN
   -- FOR UPDATE: prevents overlapping pg_cron runs from double-deducting.
   -- Each family row is locked until this transaction commits.
@@ -69,15 +70,19 @@ BEGIN
         ELSE v_policy.overdue_week_deduction
       END;
 
-      -- Floor coins at zero; profiles.coins has no upper cap so reversal is always safe.
+      -- Floor coins at zero; profiles.coin_balance has no upper cap so reversal is always safe.
       UPDATE profiles
-      SET coins      = GREATEST(0, coins - v_deduction),
-          updated_at = now()
+      SET coin_balance = GREATEST(0, coin_balance - v_deduction),
+          updated_at   = now()
       WHERE id = r.user_id;
 
       -- Notification fires automatically via trg_notify_penalty_applied trigger.
       INSERT INTO penalties (chore_assignment_id, user_id, coin_deduction, reason, batch_id)
-      VALUES (r.assignment_id, r.user_id, v_deduction, 'overdue', v_batch_id);
+      VALUES (r.assignment_id, r.user_id, v_deduction, 'overdue', v_batch_id)
+      RETURNING id INTO v_penalty_id;
+
+      INSERT INTO coin_transactions (user_id, family_id, amount, reason, related_entity_id)
+      VALUES (r.user_id, v_policy.family_id, -v_deduction, 'penalty', v_penalty_id);
     END LOOP;
   END LOOP;
 END;
@@ -105,6 +110,10 @@ BEGIN
   SELECT * INTO v_assignment FROM chore_assignments WHERE id = p_assignment_id;
   IF NOT FOUND THEN
     RAISE EXCEPTION 'Assignment not found';
+  END IF;
+
+  IF v_assignment.status <> 'overdue' THEN
+    RAISE EXCEPTION 'Can only waive overdue assignments';
   END IF;
 
   SELECT * INTO v_chore FROM chores WHERE id = v_assignment.chore_id;
@@ -149,16 +158,19 @@ BEGIN
     RAISE EXCEPTION 'Not authorized: not in same family';
   END IF;
 
-  -- profiles.coins has no upper cap; this addition is always safe.
+  -- profiles.coin_balance has no upper cap; this addition is always safe.
   UPDATE profiles
-  SET coins      = coins + v_penalty.coin_deduction,
-      updated_at = now()
+  SET coin_balance = coin_balance + v_penalty.coin_deduction,
+      updated_at   = now()
   WHERE id = v_penalty.user_id;
 
   UPDATE penalties
   SET waived_by = auth.uid(),
       waived_at = now()
   WHERE id = p_penalty_id;
+
+  INSERT INTO coin_transactions (user_id, family_id, amount, reason, related_entity_id)
+  VALUES (v_penalty.user_id, v_user_family, v_penalty.coin_deduction, 'refund', p_penalty_id);
 END;
 $$;
 
@@ -194,6 +206,8 @@ END;
 $$;
 
 -- ── 8. pg_cron schedule ────────────────────────────────────────────────────
+SELECT cron.unschedule(jobid) FROM cron.job WHERE jobname = 'weekly-penalties';
+
 SELECT cron.schedule(
   'weekly-penalties',
   '59 23 * * 6',
