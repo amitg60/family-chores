@@ -22,6 +22,7 @@ import AdminCalendarPage from './pages/admin/calendar/WeeklyCalendarPage'
 import FeedbackPage from './pages/player/feedback/FeedbackPage'
 import FeedbackDashboard from './pages/admin/feedback/FeedbackDashboard'
 import PlayersPage from './pages/admin/players/PlayersPage'
+import PenaltiesPage from './pages/admin/penalties/PenaltiesPage'
 import AchievementsPage from './pages/player/achievements/AchievementsPage'
 import ProfilePage from './pages/player/profile/ProfilePage'
 import EmailActionPage from './pages/EmailActionPage'
@@ -70,6 +71,7 @@ export const router = createBrowserRouter([
       { path: 'calendar', element: <AdminCalendarPage /> },
       { path: 'feedback', element: <FeedbackDashboard /> },
       { path: 'players', element: <PlayersPage /> },
+      { path: 'penalties', element: <PenaltiesPage /> },
     ],
   },
   {

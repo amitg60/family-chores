@@ -15,6 +15,7 @@ import {
   CalendarDays,
   MessageSquare,
   Users,
+  AlertTriangle,
 } from 'lucide-react'
 
 const adminNavItems = [
@@ -26,6 +27,7 @@ const adminNavItems = [
   { to: '/admin/calendar', label: 'לוח שבועי', icon: CalendarDays },
   { to: '/admin/feedback', label: 'משוב', icon: MessageSquare },
   { to: '/admin/players', label: 'שחקנים', icon: Users },
+  { to: '/admin/penalties', label: 'הפסדים', icon: AlertTriangle },
 ]
 
 export default function AdminLayout() {
