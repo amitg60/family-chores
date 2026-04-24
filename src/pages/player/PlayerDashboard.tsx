@@ -6,6 +6,7 @@ import { useChores } from '../../hooks/useChores'
 import { useAchievements } from '../../hooks/useAchievements'
 import { useActivityFeed } from '../../hooks/useActivityFeed'
 import { useWeeklyPopulation } from '../../hooks/useWeeklyPopulation'
+import { usePenalties } from '../../hooks/usePenalties'
 import { checkAndAwardAchievements } from '../../lib/checkAchievements'
 import { useToast } from '../../hooks/use-toast'
 import { Button } from '../../components/ui/button'
@@ -48,6 +49,7 @@ export default function PlayerDashboard() {
   const { items: feedItems } = useActivityFeed(profile?.family_id ?? null)
   const { toast } = useToast()
   useWeeklyPopulation()
+  const { penalties } = usePenalties()
 
   useEffect(() => {
     if (!profile?.family_id || loading || achievementsLoading) return
@@ -148,6 +150,28 @@ export default function PlayerDashboard() {
                     </Button>
                   )}
                 </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+      {penalties.length > 0 && (
+        <div className="space-y-2">
+          <h2 className="text-lg font-semibold">היסטוריית הפסדים</h2>
+          {penalties.map(p => (
+            <Card key={p.id}>
+              <CardContent className="py-3 flex items-center justify-between">
+                <div>
+                  <p className="font-medium">{p.chore_assignments.chores.title}</p>
+                  <p className="text-sm text-muted-foreground">
+                    {new Date(p.applied_at).toLocaleDateString('he-IL')} — {p.coin_deduction} מטבעות
+                  </p>
+                </div>
+                {p.waived_by ? (
+                  <Badge variant="secondary">בוטל</Badge>
+                ) : (
+                  <Badge variant="destructive">{p.coin_deduction} הופחת</Badge>
+                )}
               </CardContent>
             </Card>
           ))}

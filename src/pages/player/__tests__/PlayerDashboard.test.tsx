@@ -23,6 +23,9 @@ vi.mock('../../../hooks/useActivityFeed', () => ({
 vi.mock('../../../hooks/useWeeklyPopulation', () => ({
   useWeeklyPopulation: vi.fn(),
 }))
+vi.mock('../../../hooks/usePenalties', () => ({
+  usePenalties: vi.fn(() => ({ penalties: [], loading: false, error: null })),
+}))
 vi.mock('../../../lib/checkAchievements', () => ({
   checkAndAwardAchievements: vi.fn().mockResolvedValue([]),
 }))
@@ -32,6 +35,7 @@ import { useChores } from '../../../hooks/useChores'
 import { useAchievements } from '../../../hooks/useAchievements'
 import { useActivityFeed } from '../../../hooks/useActivityFeed'
 import { checkAndAwardAchievements } from '../../../lib/checkAchievements'
+import { usePenalties } from '../../../hooks/usePenalties'
 import PlayerDashboard from '../PlayerDashboard'
 
 const mockUseChoreAssignments = vi.mocked(useChoreAssignments)
@@ -39,6 +43,7 @@ const mockUseChores = vi.mocked(useChores)
 const mockUseAchievements = vi.mocked(useAchievements)
 const mockUseActivityFeed = vi.mocked(useActivityFeed)
 const mockCheckAndAward = vi.mocked(checkAndAwardAchievements)
+const mockUsePenalties = vi.mocked(usePenalties)
 
 const fakeChore = {
   id: 'c1', family_id: 'f1', title: 'כלי מטבח', coin_value: 10,
@@ -69,6 +74,7 @@ describe('PlayerDashboard', () => {
     })
     mockUseActivityFeed.mockReturnValue({ items: [], loading: false, error: null, refetch: vi.fn() })
     mockCheckAndAward.mockResolvedValue([])
+    mockUsePenalties.mockReturnValue({ penalties: [], loading: false, error: null })
   })
 
   it('shows loading spinner while loading', () => {
@@ -151,5 +157,35 @@ describe('PlayerDashboard', () => {
     mockUseChores.mockReturnValue({ chores: [fakeChore], loading: false, error: null, refetch: vi.fn() })
     renderDashboard()
     expect(screen.queryByText(/^\d+ משימות$/)).not.toBeInTheDocument()
+  })
+
+  it('does not render penalty section when no penalties', () => {
+    mockUseChoreAssignments.mockReturnValue({ assignments: [], loading: false, error: null, refetch: vi.fn() })
+    mockUsePenalties.mockReturnValue({ penalties: [], loading: false, error: null })
+    renderDashboard()
+    expect(screen.queryByText('היסטוריית הפסדים')).not.toBeInTheDocument()
+  })
+
+  it('renders penalty history section when penalties exist', () => {
+    mockUseChoreAssignments.mockReturnValue({ assignments: [], loading: false, error: null, refetch: vi.fn() })
+    mockUsePenalties.mockReturnValue({
+      penalties: [{
+        id: 'pen1',
+        chore_assignment_id: 'a1',
+        user_id: 'p1',
+        coin_deduction: 1,
+        reason: 'overdue',
+        waived_by: null,
+        waived_at: null,
+        applied_at: '2026-04-19T23:59:00Z',
+        batch_id: null,
+        chore_assignments: { chore_id: 'c1', chores: { title: 'כלי מטבח' } },
+      }],
+      loading: false,
+      error: null,
+    })
+    renderDashboard()
+    expect(screen.getByText('היסטוריית הפסדים')).toBeInTheDocument()
+    expect(screen.getByText('כלי מטבח')).toBeInTheDocument()
   })
 })
