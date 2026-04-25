@@ -136,9 +136,14 @@ export async function handler(req: Request): Promise<Response> {
         .from('chore_assignments')
         .update({ status: 'pending' })
         .eq('id', completion.chore_assignment_id)
+        .not('status', 'in', '("completed","failed")')
 
       if (assignError) {
-        console.error(JSON.stringify({ error: 'ASSIGNMENT_RESET_FAILED', id: completion.id }))
+        console.error(JSON.stringify({
+          error: 'ASSIGNMENT_RESET_FAILED_AFTER_REJECT',
+          completion_id: completion.id,
+          assignment_id: completion.chore_assignment_id,
+        }))
         errors++
         continue
       }
@@ -149,11 +154,14 @@ export async function handler(req: Request): Promise<Response> {
 
   // ── Audit log ─────────────────────────────────────────────────────────────
   const result = { orphans_cleaned: orphansCleaned, stale_rejected: staleRejected, errors }
-  await supabase.from('system_logs').insert({
+  const { error: logError } = await supabase.from('system_logs').insert({
     function_name: 'cleanup-photos',
     result,
     had_errors: errors > 0,
   })
+  if (logError) {
+    console.error(JSON.stringify({ error: 'SYSTEM_LOG_INSERT_FAILED', message: logError.message }))
+  }
 
   return new Response(JSON.stringify(result), {
     headers: { 'Content-Type': 'application/json' },
