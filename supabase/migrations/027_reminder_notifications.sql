@@ -47,7 +47,7 @@ $$;
 CREATE OR REPLACE FUNCTION reschedule_assignment(
   p_assignment_id uuid,
   p_day           int,
-  p_slot          text
+  p_slot          calendar_slot
 )
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = public
@@ -93,7 +93,7 @@ AS $$
 DECLARE
   v_local_time  time;
   v_current_dow int;
-  v_slot        text;
+  v_slot        calendar_slot;
   v_slot_label  text;
   r             RECORD;
 BEGIN
@@ -101,7 +101,10 @@ BEGIN
   v_current_dow := EXTRACT(DOW FROM (now() AT TIME ZONE 'Asia/Jerusalem'))::int;
 
   FOR v_slot, v_slot_label IN
-    VALUES ('morning','בוקר-צהריים'), ('noon','צהריים-אחה"צ'), ('afternoon','אחה"צ-ערב')
+    VALUES
+      ('morning'::calendar_slot,   'בוקר-צהריים'),
+      ('noon'::calendar_slot,      'צהריים-אחה"צ'),
+      ('afternoon'::calendar_slot, 'אחה"צ-ערב')
   LOOP
     -- Skip this run if current Israel time is outside the slot's 30-min window
     CONTINUE WHEN NOT (
@@ -151,7 +154,7 @@ REVOKE EXECUTE ON FUNCTION send_reminder_notifications() FROM anon;
 
 -- ── 6. Grant client access to player-callable RPCs ────────────────────────
 GRANT EXECUTE ON FUNCTION toggle_reminder(uuid) TO authenticated;
-GRANT EXECUTE ON FUNCTION reschedule_assignment(uuid, int, text) TO authenticated;
+GRANT EXECUTE ON FUNCTION reschedule_assignment(uuid, int, calendar_slot) TO authenticated;
 
 -- ── 7. pg_cron schedule (idempotent) ──────────────────────────────────────
 SELECT cron.unschedule(jobid) FROM cron.job WHERE jobname = 'reminder-notifications';
