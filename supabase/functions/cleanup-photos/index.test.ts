@@ -1,5 +1,5 @@
 import { assertEquals, assertFalse } from 'https://deno.land/std@0.208.0/assert/mod.ts'
-import { isValidPhotoPath, SAFE_PATH_RE } from './index.ts'
+import { isValidPhotoPath } from './index.ts'
 
 const VALID_PATH =
   '123e4567-e89b-12d3-a456-426614174000/123e4567-e89b-12d3-a456-426614174001.webp'
