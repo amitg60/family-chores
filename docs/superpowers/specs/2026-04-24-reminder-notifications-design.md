@@ -65,10 +65,11 @@ All times in **Asia/Jerusalem** timezone (handles DST automatically via `AT TIME
 - Callable by `authenticated` role only (not `anon`)
 - Validates `auth.uid() = chore_assignments.user_id` — raises `'Not authorized'` otherwise
 - Updates `calendar_day` and `calendar_slot` to the new values (`NULL` = unpin)
-- **Re-arms reminder server-side:** if `p_day` differs from current `calendar_day` OR `p_slot` differs from current `calendar_slot`, sets `reminder_sent_at = NULL`
+- **Re-arms reminder server-side:** if `p_day` IS DISTINCT FROM current `calendar_day` OR `p_slot` IS DISTINCT FROM current `calendar_slot`, sets `reminder_sent_at = NULL`
 - Does NOT reset `reminder_sent_at` when day and slot are unchanged (guards against spurious re-arms on unrelated edits)
 - Does NOT touch `reminder_enabled` — flag stays independent
 - Only touches `calendar_day`, `calendar_slot`, and conditionally `reminder_sent_at`
+- **Unpin resets `reminder_sent_at`** (intentional): ensures a fresh reminder fires when the player re-pins later, regardless of which slot they re-pin to
 
 ---
 
@@ -118,6 +119,17 @@ No PII stored in notification metadata beyond IDs.
 
 **Reset is always server-side.** Client never writes `reminder_sent_at` directly. No client-side bypass possible.
 
+**Only two UPDATE paths exist for `calendar_day`/`calendar_slot` on existing assignments** (both in `WeeklyCalendarPage.tsx`):
+- `handleDropOnCell` (line 46): non-recurring reschedule — replaced by `reschedule_assignment`
+- `handleUnpin` (line 60): non-recurring unpin — replaced by `reschedule_assignment(id, null, null)`
+
+All other writes create NEW rows (pool pickup via `self-assign-chore` Edge Function, recurring move via `self-assign-chore`, migration seed) — new rows have `reminder_sent_at = NULL` by default, no bypass. Recurring unpin deletes the row entirely.
+
+**Race condition analysis (cron vs reschedule):**
+`send_reminder_notifications` uses `SELECT ... FOR UPDATE` which serializes against concurrent `reschedule_assignment` calls on the same row. Two scenarios:
+- Reschedule commits before cron SELECT: cron sees new slot, slot doesn't match window, skips. Correct.
+- Cron locks first: fires notification for old slot (valid — assignment was on that slot), commits. Reschedule then resets `reminder_sent_at = NULL` and moves to new slot. New slot reminder fires at its window. Player receives two notifications (both valid). No data corruption, no missed reminders.
+
 **UI copy:** Show a hint below the reminder checkbox only when `reminder_enabled=true` AND `reminder_sent_at IS NOT NULL` (reminder already fired for current slot, player hasn't moved or re-toggled): `"תזכורת נשלחה כבר — כבה והדלק מחדש כדי לשלוח שוב"` ("Reminder already sent — toggle off and on to re-arm").
 
 ---
@@ -159,8 +171,9 @@ No new UI components.
 | Double-fire from overlapping pg_cron | `FOR UPDATE` row lock + `reminder_sent_at IS NULL` guard |
 | Injection via chore title in notification | Title sourced from DB join, never from user-supplied input |
 | Anon calling toggle_reminder | SECURITY DEFINER callable by `authenticated` only |
-| Client bypassing re-arm rule | `reschedule_assignment` RPC does comparison server-side; client cannot write `reminder_sent_at` directly |
-| Spurious re-arm on unrelated edit | `reschedule_assignment` only resets when `calendar_day` or `calendar_slot` actually changes |
+| Client bypassing re-arm rule | `reschedule_assignment` RPC does comparison server-side; client cannot write `reminder_sent_at` directly; only two UPDATE paths exist (both replaced by RPC) |
+| Spurious re-arm on unrelated edit | `reschedule_assignment` uses `IS DISTINCT FROM` comparison — resets only when slot/day actually changes |
+| Race: cron fires while reschedule in flight | `FOR UPDATE` serializes both; worst case is two valid notifications (old slot + new slot), no corruption |
 | Privileged INSERT bypassing RLS | Intentional — postgres-owned SECURITY DEFINER, REVOKE'd from all client roles; `SET search_path = public` prevents injection |
 | Double-fire on DST fall-back | `reminder_sent_at IS NULL` guard prevents second fire in repeated hour |
 
