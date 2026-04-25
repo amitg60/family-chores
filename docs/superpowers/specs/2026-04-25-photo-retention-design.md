@@ -21,6 +21,10 @@ Completion photos are ephemeral proof — they have no long-term value once a ch
 - Pending completions older than 30 days auto-rejected and their photos deleted
 - No photo paths written to logs anywhere
 - System is resilient: client-side failures do not permanently orphan photos
+- Storage paths validated before deletion — no cross-bucket or path-traversal risk
+- Cleanup runs recorded in `system_logs` table for admin auditability
+- DB indexes added to keep cleanup queries fast as table grows
+- Consecutive full-batch runs logged as warnings for capacity monitoring
 
 ---
 
@@ -82,7 +86,43 @@ UPDATE chore_completions
 
 No schema changes required — `photo_url` is already nullable.
 
-### 3.2 Cron Schedule
+### 3.2 DB Indexes
+
+Added in the same migration to keep Edge Function queries fast:
+
+```sql
+-- Job 1: find approved/rejected completions that still have a photo
+CREATE INDEX idx_completions_orphaned_photos
+  ON chore_completions (status)
+  WHERE photo_url IS NOT NULL;
+
+-- Job 2: find stale pending completions
+CREATE INDEX idx_completions_stale_pending
+  ON chore_completions (completed_at)
+  WHERE status = 'pending';
+```
+
+Partial indexes — only index the rows that matter for each query. No overhead on the common case (photo_url already null).
+
+### 3.3 `system_logs` Table
+
+New table for recording cleanup run summaries:
+
+```sql
+CREATE TABLE system_logs (
+  id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  function_name  TEXT NOT NULL,
+  run_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  result         JSONB NOT NULL,
+  had_errors     BOOLEAN NOT NULL DEFAULT FALSE
+);
+```
+
+`result` stores counts only — e.g. `{"orphans_cleaned": 3, "stale_rejected": 1, "errors": 0}`. No photo paths, no user data.
+
+**RLS:** No SELECT policy for players. Admins can read via a dedicated policy. No INSERT/UPDATE/DELETE policies for any client role — Edge Function writes via `service_role` only.
+
+### 3.4 Cron Schedule
 
 Added via pg_cron + pg_net in the same migration. Triggers the Edge Function every Sunday at 3:00 AM:
 
@@ -165,7 +205,21 @@ const supabase = createClient(
 )
 ```
 
-### 5.3 Job 1 — Orphaned Photos
+### 5.3 Storage Path Validation
+
+Before any `storage.remove()` call, the path is validated against the expected format:
+
+```typescript
+const SAFE_PATH_RE = /^[0-9a-f-]{36}\/[0-9a-f-]{36}\.webp$/i
+
+function isValidPhotoPath(path: string): boolean {
+  return SAFE_PATH_RE.test(path) && !path.includes('..')
+}
+```
+
+Expected format: `{user-uuid}/{file-uuid}.webp` — matches exactly what `CompletionPage.tsx` constructs. Any path that fails validation is skipped and logged (ID only, not the path itself) — never passed to `storage.remove()`. This prevents accidental or malicious deletion of files outside the expected naming scheme.
+
+### 5.4 Job 1 — Orphaned Photos
 
 Targets completions that were approved or rejected but whose `photo_url` was not nulled (client deletion failed):
 
@@ -177,14 +231,15 @@ LIMIT 50
 ```
 
 For each record:
-1. `storage.remove([photo_url])` — delete from Storage
-2. `UPDATE chore_completions SET photo_url = null WHERE id = <id>` — null in DB
+1. Validate `photo_url` with `isValidPhotoPath()` — skip if invalid
+2. `storage.remove([photo_url])` — delete from Storage
+3. `UPDATE chore_completions SET photo_url = null WHERE id = <id>` — null in DB
 
 If Storage deletion fails: log completion ID (not path), skip DB update, continue. The record will be retried next weekly run.
 
 If DB update fails after Storage deletion: log completion ID, continue. Photo is gone but `photo_url` still set — DB update will be retried harmlessly next run.
 
-### 5.4 Job 2 — Stale Pending Completions
+### 5.5 Job 2 — Stale Pending Completions
 
 Targets completions unreviewed for more than 30 days:
 
@@ -201,28 +256,50 @@ For each record:
 2. `UPDATE chore_completions SET status='rejected', rejection_reason='פג תוקף — לא אושר תוך 30 יום', photo_url=null, reviewed_at=now() WHERE id = <id>`
 3. `UPDATE chore_assignments SET status='pending' WHERE id = <chore_assignment_id>` — resets assignment so player can resubmit
 
-### 5.5 Batching
+### 5.6 Batching and Capacity Monitoring
 
 Both jobs use `LIMIT 50`. If a run finds exactly 50 records, it processes them and returns — remaining records are handled the following week. This keeps execution well within the 150-second Edge Function timeout.
 
-### 5.6 Response
+If either job returns exactly 50 records (the batch limit), the function logs a structured warning:
 
 ```json
-{ "orphans_cleaned": 3, "stale_rejected": 1 }
+{ "warning": "BATCH_LIMIT_REACHED", "job": "orphans", "count": 50 }
 ```
 
-Counts only — no paths, no user data, no photo URLs in the response body.
+This signals that cleanup volume may be outpacing the weekly cadence — an operator should investigate whether the batch size or schedule needs adjustment. The warning appears in Supabase Edge Function logs, visible in the dashboard.
 
-### 5.7 Security Hardening Summary
+### 5.7 Response and Audit Log
+
+Response body:
+```json
+{ "orphans_cleaned": 3, "stale_rejected": 1, "errors": 0 }
+```
+
+After completing both jobs, the function inserts one row into `system_logs`:
+
+```typescript
+await supabase.from('system_logs').insert({
+  function_name: 'cleanup-photos',
+  result: { orphans_cleaned, stale_rejected, errors },
+  had_errors: errors > 0,
+})
+```
+
+Counts only — no paths, no user data, no photo URLs in the log row.
+
+### 5.8 Security Hardening Summary
 
 | Concern | Mitigation |
 |---|---|
 | Unauthorized invocation | `CRON_SECRET` bearer check — 401 on mismatch |
 | Service role key exposure | Auto-injected by Supabase runtime, never in source |
 | Photo path leakage | Paths never logged; only IDs and counts emitted |
+| Cross-bucket / path traversal deletion | `isValidPhotoPath()` validates UUID/webp format before any `storage.remove()` call |
 | SQL injection | Supabase JS client uses parameterized queries throughout |
 | Timeout / runaway | Batch size capped at 50; idempotent on re-run |
-| Missing env var | Function throws on startup if `CRON_SECRET` not set |
+| Missing env var | Function throws `500` on startup if `CRON_SECRET` not set |
+| Audit trail | Every run recorded in `system_logs` — counts only, no sensitive data |
+| Capacity blind spots | Batch-limit warnings emitted to Edge Function logs when either job hits 50 |
 
 ---
 
@@ -256,6 +333,11 @@ Counts only — no paths, no user data, no photo URLs in the response body.
 - Job 2: mock completions with `status='pending'` and `completed_at` >30 days ago → rejected, assignment reset
 - Storage failure in Job 1 → DB not updated, function continues, counts reflect partial success
 - Response body contains correct counts
+- `isValidPhotoPath()`: valid UUID/webp path → true; path with `..` → false; wrong extension → false; single segment → false
+- Malformed `photo_url` in DB → skipped (not passed to `storage.remove()`), logged by ID
+- Either job hits exactly 50 records → warning logged with `BATCH_LIMIT_REACHED`
+- Successful run → row inserted into `system_logs` with correct counts and `had_errors = false`
+- Run with storage errors → `system_logs` row has `had_errors = true`, `errors` count > 0
 
 ---
 
