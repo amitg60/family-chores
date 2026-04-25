@@ -15,7 +15,7 @@ AS $$
 DECLARE
   v_assignment chore_assignments%ROWTYPE;
 BEGIN
-  SELECT * INTO v_assignment FROM chore_assignments WHERE id = p_assignment_id;
+  SELECT * INTO v_assignment FROM chore_assignments WHERE id = p_assignment_id FOR UPDATE;
   IF NOT FOUND THEN
     RAISE EXCEPTION 'Assignment not found';
   END IF;
@@ -55,7 +55,7 @@ AS $$
 DECLARE
   v_assignment chore_assignments%ROWTYPE;
 BEGIN
-  SELECT * INTO v_assignment FROM chore_assignments WHERE id = p_assignment_id;
+  SELECT * INTO v_assignment FROM chore_assignments WHERE id = p_assignment_id FOR UPDATE;
   IF NOT FOUND THEN
     RAISE EXCEPTION 'Assignment not found';
   END IF;
@@ -149,7 +149,11 @@ REVOKE EXECUTE ON FUNCTION send_reminder_notifications() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION send_reminder_notifications() FROM authenticated;
 REVOKE EXECUTE ON FUNCTION send_reminder_notifications() FROM anon;
 
--- ── 6. pg_cron schedule (idempotent) ──────────────────────────────────────
+-- ── 6. Grant client access to player-callable RPCs ────────────────────────
+GRANT EXECUTE ON FUNCTION toggle_reminder(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION reschedule_assignment(uuid, int, text) TO authenticated;
+
+-- ── 7. pg_cron schedule (idempotent) ──────────────────────────────────────
 SELECT cron.unschedule(jobid) FROM cron.job WHERE jobname = 'reminder-notifications';
 SELECT cron.schedule(
   'reminder-notifications',
