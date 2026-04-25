@@ -212,7 +212,7 @@ describe('Player WeeklyCalendarPage', () => {
     expect(screen.queryByRole('checkbox', { name: 'תזכורת' })).not.toBeInTheDocument()
   })
 
-  it('dragging an already-scheduled recurring assignment creates a new one instead of moving', async () => {
+  it('dragging an already-scheduled recurring assignment moves it via reschedule_assignment', async () => {
     const recurringPinned: AssignmentWithDetails = {
       ...ownPinned, id: 'a5', calendar_day: 2, calendar_slot: 'afternoon',
       chores: { title: 'ניקיון', coin_value: 8, recurrence_type: 'daily' },
@@ -228,12 +228,12 @@ describe('Player WeeklyCalendarPage', () => {
     })
 
     await waitFor(() => {
-      expect(mockFunctionsInvoke).toHaveBeenCalledWith('self-assign-chore', {
-        body: { chore_id: 'c1', calendar_day: 1, calendar_slot: 'morning' },
+      expect(mockRpc).toHaveBeenCalledWith('reschedule_assignment', {
+        p_assignment_id: 'a5', p_day: 1, p_slot: 'morning',
       })
       expect(mockRefetch).toHaveBeenCalled()
     })
-    expect(mockRpc).not.toHaveBeenCalledWith('reschedule_assignment', expect.anything())
+    expect(mockFunctionsInvoke).not.toHaveBeenCalledWith('self-assign-chore', expect.anything())
   })
 
   it('completed assignments are not shown', () => {

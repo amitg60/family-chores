@@ -35,21 +35,14 @@ export default function WeeklyCalendarPage() {
         body: { chore_id: choreId, calendar_day: day, calendar_slot: slot },
       })
     } else {
-      const assignment = assignments.find(a => a.id === id)
-      if (assignment && assignment.chores.recurrence_type !== 'none' && assignment.calendar_day !== null) {
-        await supabase.functions.invoke('self-assign-chore', {
-          body: { chore_id: assignment.chore_id, calendar_day: day, calendar_slot: slot },
-        })
-      } else {
-        const { error } = await supabase.rpc('reschedule_assignment', {
-          p_assignment_id: id,
-          p_day: day,
-          p_slot: slot,
-        })
-        if (error) {
-          toast({ variant: 'destructive', title: 'שגיאה', description: error.message })
-          return
-        }
+      const { error } = await supabase.rpc('reschedule_assignment', {
+        p_assignment_id: id,
+        p_day: day,
+        p_slot: slot,
+      })
+      if (error) {
+        toast({ variant: 'destructive', title: 'שגיאה', description: error.message })
+        return
       }
     }
     refetch()
