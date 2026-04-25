@@ -32,7 +32,7 @@ const mockUseCalendarAssignments = vi.mocked(useCalendarAssignments)
 const ownPinned: AssignmentWithDetails = {
   id: 'a1', chore_id: 'c1', user_id: 'u1',
   week_start: '2026-03-29', calendar_day: 1, calendar_slot: 'morning',
-  reminder_enabled: false, status: 'pending', archived: false,
+  reminder_enabled: false, reminder_sent_at: null, status: 'pending', archived: false, assigned_by: null,
   created_at: '2026-04-01T10:00:00Z', updated_at: '2026-04-01T10:00:00Z',
   chores: { title: 'כלים', coin_value: 10, recurrence_type: 'none' },
   profiles: { name: 'דנה', avatar_url: null },

@@ -48,7 +48,7 @@ const recurringChore = {
 
 const existingAssignment = {
   id: 'a1', chore_id: 'c2', user_id: 'p1', week_start: '2026-04-13',
-  calendar_day: null, calendar_slot: null, reminder_enabled: false,
+  calendar_day: null, calendar_slot: null, reminder_enabled: false, reminder_sent_at: null,
   status: 'pending' as const, archived: false, assigned_by: 'p1',
   created_at: '2026-04-05T00:00:00Z', updated_at: '2026-04-05T00:00:00Z',
 }

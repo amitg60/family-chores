@@ -56,7 +56,8 @@ const fakeChore = {
 const fakeAssignment = {
   id: 'a1', chore_id: 'c1', user_id: 'p1', week_start: '2026-04-05',
   calendar_day: null, calendar_slot: null, reminder_enabled: false,
-  status: 'pending' as const, archived: false,
+  reminder_sent_at: null,
+  status: 'pending' as const, archived: false, assigned_by: null,
   created_at: '2026-04-05T00:00:00Z', updated_at: '2026-04-05T00:00:00Z',
 }
 

@@ -66,6 +66,7 @@ export interface ChoreAssignment {
   calendar_day: number | null
   calendar_slot: CalendarSlot | null
   reminder_enabled: boolean
+  reminder_sent_at: string | null
   status: AssignmentStatus
   archived: boolean
   assigned_by: string | null
