@@ -4,10 +4,11 @@ import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
 import '../../../../test/mocks/supabase'
-import { mockFrom, mockFunctionsInvoke } from '../../../../test/mocks/supabase'
+import { mockRpc, mockFunctionsInvoke } from '../../../../test/mocks/supabase'
 import type { AssignmentWithDetails } from '../../../../hooks/useCalendarAssignments'
 
 const mockRefetch = vi.fn()
+const mockToast = vi.fn()
 
 vi.mock('../../../../hooks/useCalendarAssignments', () => ({
   useCalendarAssignments: vi.fn(() => ({
@@ -23,6 +24,9 @@ vi.mock('../../../../contexts/AuthContext', () => ({
 vi.mock('../../../../hooks/useChores', () => ({
   useChores: vi.fn(() => ({ chores: [], loading: false, error: null, refetch: vi.fn() })),
 }))
+vi.mock('../../../../hooks/use-toast', () => ({
+  useToast: () => ({ toast: mockToast }),
+}))
 
 import { useCalendarAssignments } from '../../../../hooks/useCalendarAssignments'
 import WeeklyCalendarPage from '../WeeklyCalendarPage'
@@ -32,7 +36,8 @@ const mockUseCalendarAssignments = vi.mocked(useCalendarAssignments)
 const ownPinned: AssignmentWithDetails = {
   id: 'a1', chore_id: 'c1', user_id: 'u1',
   week_start: '2026-03-29', calendar_day: 1, calendar_slot: 'morning',
-  reminder_enabled: false, reminder_sent_at: null, status: 'pending', archived: false, assigned_by: null,
+  reminder_enabled: false, reminder_sent_at: null,
+  status: 'pending', archived: false, assigned_by: null,
   created_at: '2026-04-01T10:00:00Z', updated_at: '2026-04-01T10:00:00Z',
   chores: { title: 'כלים', coin_value: 10, recurrence_type: 'none' },
   profiles: { name: 'דנה', avatar_url: null },
@@ -54,7 +59,10 @@ function renderPage() {
 }
 
 describe('Player WeeklyCalendarPage', () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockRpc.mockResolvedValue({ error: null })
+  })
 
   it('shows loading state', () => {
     mockUseCalendarAssignments.mockReturnValue({
@@ -84,13 +92,10 @@ describe('Player WeeklyCalendarPage', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
-  it('dropping assignment on a cell calls supabase update and refetch', async () => {
+  it('dropping assignment on a cell calls reschedule_assignment RPC and refetch', async () => {
     mockUseCalendarAssignments.mockReturnValue({
       assignments: [ownUnscheduled, ownPinned], loading: false, error: null, refetch: mockRefetch,
     })
-    const mockUpdateFn = vi.fn().mockReturnThis()
-    const mockEqFn = vi.fn().mockResolvedValue({ error: null })
-    mockFrom.mockReturnValue({ update: mockUpdateFn, eq: mockEqFn })
     renderPage()
 
     const cell = screen.getAllByTestId('cell-1-morning')[0]
@@ -99,43 +104,102 @@ describe('Player WeeklyCalendarPage', () => {
     })
 
     await waitFor(() => {
-      expect(mockFrom).toHaveBeenCalledWith('chore_assignments')
-      expect(mockUpdateFn).toHaveBeenCalledWith({ calendar_day: 1, calendar_slot: 'morning' })
+      expect(mockRpc).toHaveBeenCalledWith('reschedule_assignment', {
+        p_assignment_id: 'a2',
+        p_day: 1,
+        p_slot: 'morning',
+      })
       expect(mockRefetch).toHaveBeenCalled()
     })
   })
 
-  it('"הסר" button unpins own pinned assignment', async () => {
+  it('"הסר" button calls reschedule_assignment RPC with null day/slot', async () => {
     mockUseCalendarAssignments.mockReturnValue({
       assignments: [ownPinned], loading: false, error: null, refetch: mockRefetch,
     })
-    const mockUpdateFn = vi.fn().mockReturnThis()
-    const mockEqFn = vi.fn().mockResolvedValue({ error: null })
-    mockFrom.mockReturnValue({ update: mockUpdateFn, eq: mockEqFn })
     renderPage()
 
     await userEvent.click(screen.getByRole('button', { name: 'הסר' }))
 
     await waitFor(() => {
-      expect(mockUpdateFn).toHaveBeenCalledWith({ calendar_day: null, calendar_slot: null })
+      expect(mockRpc).toHaveBeenCalledWith('reschedule_assignment', {
+        p_assignment_id: 'a1',
+        p_day: null,
+        p_slot: null,
+      })
       expect(mockRefetch).toHaveBeenCalled()
     })
   })
 
-  it('reminder checkbox toggles reminder_enabled on own unscheduled assignment', async () => {
+  it('reminder checkbox calls toggle_reminder RPC', async () => {
     mockUseCalendarAssignments.mockReturnValue({
       assignments: [ownUnscheduled], loading: false, error: null, refetch: mockRefetch,
     })
-    const mockUpdateFn = vi.fn().mockReturnThis()
-    const mockEqFn = vi.fn().mockResolvedValue({ error: null })
-    mockFrom.mockReturnValue({ update: mockUpdateFn, eq: mockEqFn })
     renderPage()
 
     await userEvent.click(screen.getByRole('checkbox', { name: 'תזכורת' }))
 
     await waitFor(() => {
-      expect(mockUpdateFn).toHaveBeenCalledWith({ reminder_enabled: true })
+      expect(mockRpc).toHaveBeenCalledWith('toggle_reminder', { p_assignment_id: 'a2' })
     })
+  })
+
+  it('toggle_reminder RPC error shows error toast', async () => {
+    mockUseCalendarAssignments.mockReturnValue({
+      assignments: [ownUnscheduled], loading: false, error: null, refetch: mockRefetch,
+    })
+    mockRpc.mockResolvedValue({ error: { message: 'Not authorized' } })
+    renderPage()
+
+    await userEvent.click(screen.getByRole('checkbox', { name: 'תזכורת' }))
+
+    await waitFor(() => {
+      expect(mockToast).toHaveBeenCalledWith(
+        expect.objectContaining({ variant: 'destructive' })
+      )
+    })
+  })
+
+  it('reschedule_assignment RPC error shows error toast', async () => {
+    mockUseCalendarAssignments.mockReturnValue({
+      assignments: [ownPinned], loading: false, error: null, refetch: mockRefetch,
+    })
+    mockRpc.mockResolvedValue({ error: { message: 'Not authorized' } })
+    renderPage()
+
+    await userEvent.click(screen.getByRole('button', { name: 'הסר' }))
+
+    await waitFor(() => {
+      expect(mockToast).toHaveBeenCalledWith(
+        expect.objectContaining({ variant: 'destructive' })
+      )
+    })
+  })
+
+  it('shows re-arm hint when reminder_enabled=true and reminder_sent_at is set', () => {
+    const firedAssignment: AssignmentWithDetails = {
+      ...ownUnscheduled,
+      reminder_enabled: true,
+      reminder_sent_at: '2026-04-25T07:31:00Z',
+    }
+    mockUseCalendarAssignments.mockReturnValue({
+      assignments: [firedAssignment], loading: false, error: null, refetch: mockRefetch,
+    })
+    renderPage()
+    expect(screen.getByText('תזכורת נשלחה — העבר למשבצת אחרת או כבה והדלק מחדש')).toBeInTheDocument()
+  })
+
+  it('does not show re-arm hint when reminder_sent_at is null', () => {
+    const armedAssignment: AssignmentWithDetails = {
+      ...ownUnscheduled,
+      reminder_enabled: true,
+      reminder_sent_at: null,
+    }
+    mockUseCalendarAssignments.mockReturnValue({
+      assignments: [armedAssignment], loading: false, error: null, refetch: mockRefetch,
+    })
+    renderPage()
+    expect(screen.queryByText('תזכורת נשלחה — העבר למשבצת אחרת או כבה והדלק מחדש')).not.toBeInTheDocument()
   })
 
   it('does not show unpin/reminder controls for other players\' assignments', () => {
@@ -169,20 +233,11 @@ describe('Player WeeklyCalendarPage', () => {
       })
       expect(mockRefetch).toHaveBeenCalled()
     })
-    // should NOT call supabase.from().update() since it's a recurring scheduled assignment
-    expect(mockFrom).not.toHaveBeenCalledWith('chore_assignments')
+    expect(mockRpc).not.toHaveBeenCalledWith('reschedule_assignment', expect.anything())
   })
 
   it('completed assignments are not shown', () => {
-    const completed: AssignmentWithDetails = { ...ownPinned, id: 'a4', status: 'completed', chores: { title: 'הושלמה', coin_value: 5, recurrence_type: 'none' } }
-    mockUseCalendarAssignments.mockReturnValue({
-      // hook already filters completed, but page renders what it receives
-      assignments: [completed], loading: false, error: null, refetch: mockRefetch,
-    })
-    // completed tasks still show if hook returns them (filtering is in the hook)
-    // this test verifies the hook filter is applied - we just confirm the hook is called
     renderPage()
-    // the hook is responsible for filtering; page renders what it receives
     expect(mockUseCalendarAssignments).toHaveBeenCalled()
   })
 })

@@ -3,6 +3,7 @@ import { useAuth } from '../../../contexts/AuthContext'
 import { useCalendarAssignments } from '../../../hooks/useCalendarAssignments'
 import type { AssignmentWithDetails } from '../../../hooks/useCalendarAssignments'
 import { useChores } from '../../../hooks/useChores'
+import { useToast } from '../../../hooks/use-toast'
 import { supabase } from '../../../lib/supabase'
 import WeeklyCalendarGrid from '../../../components/calendar/WeeklyCalendarGrid'
 import type { CalendarSlot } from '../../../types/database'
@@ -13,21 +14,20 @@ export default function WeeklyCalendarPage() {
   const { profile } = useAuth()
   const { assignments, loading, error, refetch } = useCalendarAssignments()
   const { chores } = useChores()
+  const { toast } = useToast()
   const [unscheduledDragOver, setUnscheduledDragOver] = useState(false)
 
-  // All unscheduled assignments owned by this player
   const ownUnscheduled = assignments.filter(
     a => a.user_id === profile?.id && a.calendar_day === null
   )
 
-  // Chore IDs the player already has an unscheduled assignment for
   const unscheduledChoreIds = new Set(ownUnscheduled.map(a => a.chore_id))
 
-  // Virtual cards only for recurring chores the player hasn't taken yet this week
   const recurringVirtualCards = chores.filter(
     c => c.status === 'active' && c.is_pool_visible && c.recurrence_type !== 'none'
        && !unscheduledChoreIds.has(c.id)
   )
+
   async function handleDropOnCell(day: number, slot: CalendarSlot, id: string) {
     if (id.startsWith(CHORE_DRAG_PREFIX)) {
       const choreId = id.slice(CHORE_DRAG_PREFIX.length)
@@ -41,10 +41,15 @@ export default function WeeklyCalendarPage() {
           body: { chore_id: assignment.chore_id, calendar_day: day, calendar_slot: slot },
         })
       } else {
-        await supabase
-          .from('chore_assignments')
-          .update({ calendar_day: day, calendar_slot: slot })
-          .eq('id', id)
+        const { error } = await supabase.rpc('reschedule_assignment', {
+          p_assignment_id: id,
+          p_day: day,
+          p_slot: slot,
+        })
+        if (error) {
+          toast({ variant: 'destructive', title: 'שגיאה', description: error.message })
+          return
+        }
       }
     }
     refetch()
@@ -52,22 +57,27 @@ export default function WeeklyCalendarPage() {
 
   async function handleUnpin(a: AssignmentWithDetails) {
     if (a.chores.recurrence_type !== 'none') {
-      // Recurring: delete the slot assignment so the virtual card reappears
       await supabase.from('chore_assignments').delete().eq('id', a.id)
     } else {
-      await supabase
-        .from('chore_assignments')
-        .update({ calendar_day: null, calendar_slot: null })
-        .eq('id', a.id)
+      const { error } = await supabase.rpc('reschedule_assignment', {
+        p_assignment_id: a.id,
+        p_day: null,
+        p_slot: null,
+      })
+      if (error) {
+        toast({ variant: 'destructive', title: 'שגיאה', description: error.message })
+        return
+      }
     }
     refetch()
   }
 
   async function handleToggleReminder(a: AssignmentWithDetails) {
-    await supabase
-      .from('chore_assignments')
-      .update({ reminder_enabled: !a.reminder_enabled })
-      .eq('id', a.id)
+    const { error } = await supabase.rpc('toggle_reminder', { p_assignment_id: a.id })
+    if (error) {
+      toast({ variant: 'destructive', title: 'שגיאה', description: error.message })
+      return
+    }
     refetch()
   }
 
@@ -117,7 +127,6 @@ export default function WeeklyCalendarPage() {
               </div>
             ) : (
               <div className={`space-y-2 p-2 rounded-lg transition-colors ${unscheduledDragOver ? 'bg-primary/10 ring-2 ring-primary/40' : ''}`}>
-                {/* Actual unscheduled assignments (both recurring and non-recurring) */}
                 {ownUnscheduled.map(a => (
                   <div
                     key={a.id}
@@ -134,20 +143,26 @@ export default function WeeklyCalendarPage() {
                         <span className="text-xs text-muted-foreground">🔁</span>
                       )}
                     </div>
-                    <label className="flex items-center gap-1.5 cursor-pointer text-sm">
-                      <input
-                        type="checkbox"
-                        aria-label="תזכורת"
-                        checked={a.reminder_enabled}
-                        onChange={() => handleToggleReminder(a)}
-                        className="h-4 w-4"
-                      />
-                      תזכורת
-                    </label>
+                    <div className="flex flex-col items-end gap-1">
+                      <label className="flex items-center gap-1.5 cursor-pointer text-sm">
+                        <input
+                          type="checkbox"
+                          aria-label="תזכורת"
+                          checked={a.reminder_enabled}
+                          onChange={() => handleToggleReminder(a)}
+                          className="h-4 w-4"
+                        />
+                        תזכורת
+                      </label>
+                      {a.reminder_enabled && a.reminder_sent_at && (
+                        <p className="text-xs text-muted-foreground">
+                          תזכורת נשלחה — העבר למשבצת אחרת או כבה והדלק מחדש
+                        </p>
+                      )}
+                    </div>
                   </div>
                 ))}
 
-                {/* Virtual cards for recurring chores not yet taken this week */}
                 {recurringVirtualCards.map(chore => (
                   <div
                     key={chore.id}
