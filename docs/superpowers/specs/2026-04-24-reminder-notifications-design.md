@@ -60,6 +60,16 @@ All times in **Asia/Jerusalem** timezone (handles DST automatically via `AT TIME
 - On **disable**: leaves `reminder_sent_at` unchanged
 - Only touches `reminder_enabled` and `reminder_sent_at` — no other columns
 
+### `reschedule_assignment(p_assignment_id uuid, p_day int, p_slot text)` RPC
+- `SECURITY DEFINER`, `SET search_path = public`
+- Callable by `authenticated` role only (not `anon`)
+- Validates `auth.uid() = chore_assignments.user_id` — raises `'Not authorized'` otherwise
+- Updates `calendar_day` and `calendar_slot` to the new values (`NULL` = unpin)
+- **Re-arms reminder server-side:** if `p_day` differs from current `calendar_day` OR `p_slot` differs from current `calendar_slot`, sets `reminder_sent_at = NULL`
+- Does NOT reset `reminder_sent_at` when day and slot are unchanged (guards against spurious re-arms on unrelated edits)
+- Does NOT touch `reminder_enabled` — flag stays independent
+- Only touches `calendar_day`, `calendar_slot`, and conditionally `reminder_sent_at`
+
 ---
 
 ## 3. Data Changes
@@ -97,21 +107,45 @@ No PII stored in notification metadata beyond IDs.
 2. **`FOR UPDATE` row lock** — prevents double-fire if pg_cron runs overlap
 3. **`toggle_reminder` resets on enable only** — re-enabling always re-arms; disabling leaves `reminder_sent_at` unchanged
 
-**Re-arm rule:** `reminder_sent_at` resets only when player toggles reminder OFF → ON. Re-pinning to a different slot/day does NOT auto-reset — the old `reminder_sent_at` is preserved indefinitely until the player explicitly toggles. This means after rescheduling, **no reminder fires for the new slot** until the player re-arms.
+**Re-arm triggers (two paths):**
+1. Player toggles reminder OFF → ON via `toggle_reminder` RPC
+2. Player moves assignment to a different day or slot via `reschedule_assignment` RPC — server compares old vs new `calendar_day`/`calendar_slot` and resets `reminder_sent_at = NULL` only when at least one differs
 
-**UI copy:** When a player re-pins an assignment that already has `reminder_sent_at` set, show a small hint below the reminder checkbox: `"תזכורת נשלחה כבר — כבה והדלק מחדש כדי לשלוח שוב"` ("Reminder already sent — toggle off and on to re-arm"). Show this hint only when `reminder_enabled=true` AND `reminder_sent_at IS NOT NULL`.
+**What does NOT reset `reminder_sent_at`:**
+- Edits to unrelated fields (title, coin value, notes)
+- Toggling reminder OFF
+- Unpinning (day/slot → null): technically a slot change, so reset fires — but reminder won't fire anyway for unslotted assignments
+
+**Reset is always server-side.** Client never writes `reminder_sent_at` directly. No client-side bypass possible.
+
+**UI copy:** Show a hint below the reminder checkbox only when `reminder_enabled=true` AND `reminder_sent_at IS NOT NULL` (reminder already fired for current slot, player hasn't moved or re-toggled): `"תזכורת נשלחה כבר — כבה והדלק מחדש כדי לשלוח שוב"` ("Reminder already sent — toggle off and on to re-arm").
 
 ---
 
 ## 6. UI Changes
 
-**`WeeklyCalendarPage.tsx`:** Replace direct `.update({ reminder_enabled })` with:
+**`WeeklyCalendarPage.tsx` — two changes:**
+
+1. **Reminder toggle:** Replace direct `.update({ reminder_enabled })` with:
 ```ts
 supabase.rpc('toggle_reminder', { p_assignment_id: a.id })
 ```
-Refetch after call. Add error handling: RPC error → show toast (matches error pattern used elsewhere in app).
 
-No new UI components. Existing checkbox + label unchanged.
+2. **Pin/reschedule (`handleDropOnCell` and `handleUnpin`):** Replace direct `.update({ calendar_day, calendar_slot })` with:
+```ts
+supabase.rpc('reschedule_assignment', {
+  p_assignment_id: a.id,
+  p_day: day,       // null for unpin
+  p_slot: slot,     // null for unpin
+})
+```
+Server handles reminder re-arm comparison. Client never writes `reminder_sent_at`.
+
+Both RPCs: refetch after call. Add error handling: RPC error → show toast.
+
+**Re-arm hint:** Show `"תזכורת נשלחה כבר — כבה והדלק מחדש כדי לשלוח שוב"` below reminder checkbox when `reminder_enabled=true` AND `reminder_sent_at IS NOT NULL`. The hint disappears automatically after re-pin (since `reschedule_assignment` resets `reminder_sent_at`) or after toggle off/on.
+
+No new UI components.
 
 ---
 
@@ -125,6 +159,8 @@ No new UI components. Existing checkbox + label unchanged.
 | Double-fire from overlapping pg_cron | `FOR UPDATE` row lock + `reminder_sent_at IS NULL` guard |
 | Injection via chore title in notification | Title sourced from DB join, never from user-supplied input |
 | Anon calling toggle_reminder | SECURITY DEFINER callable by `authenticated` only |
+| Client bypassing re-arm rule | `reschedule_assignment` RPC does comparison server-side; client cannot write `reminder_sent_at` directly |
+| Spurious re-arm on unrelated edit | `reschedule_assignment` only resets when `calendar_day` or `calendar_slot` actually changes |
 | Privileged INSERT bypassing RLS | Intentional — postgres-owned SECURITY DEFINER, REVOKE'd from all client roles; `SET search_path = public` prevents injection |
 | Double-fire on DST fall-back | `reminder_sent_at IS NULL` guard prevents second fire in repeated hour |
 
@@ -143,8 +179,8 @@ When email reminders are added:
 
 | File | Action | Purpose |
 |------|--------|---------|
-| `supabase/migrations/027_reminder_notifications.sql` | Create | `reminder_sent_at` column, `toggle_reminder` RPC, `send_reminder_notifications` function, pg_cron schedule |
-| `src/pages/player/calendar/WeeklyCalendarPage.tsx` | Modify | Replace direct update with `toggle_reminder` RPC + error toast + re-arm hint when `reminder_sent_at` is set |
+| `supabase/migrations/027_reminder_notifications.sql` | Create | `reminder_sent_at` column, `toggle_reminder` RPC, `reschedule_assignment` RPC, `send_reminder_notifications` function, pg_cron schedule |
+| `src/pages/player/calendar/WeeklyCalendarPage.tsx` | Modify | Replace direct updates with `toggle_reminder` + `reschedule_assignment` RPCs; add error toasts; add re-arm hint |
 | `src/pages/player/calendar/__tests__/WeeklyCalendarPage.test.tsx` | Modify | Update toggle tests to use `mockRpc`; add RPC error → toast test |
 
 ---
@@ -159,9 +195,11 @@ SELECT * FROM notifications WHERE type = 'reminder' ORDER BY created_at DESC LIM
 
 **WeeklyCalendarPage tests:**
 - Reminder toggle calls `mockRpc('toggle_reminder', { p_assignment_id })` — not `mockUpdate`
-- RPC error response → error toast renders
+- Pin/drop calls `mockRpc('reschedule_assignment', { p_assignment_id, p_day, p_slot })`
+- Unpin calls `mockRpc('reschedule_assignment', { p_assignment_id, p_day: null, p_slot: null })`
+- RPC error on either call → error toast renders
 - Re-arm hint renders when `reminder_enabled=true` AND `reminder_sent_at` is non-null
 - Re-arm hint absent when `reminder_sent_at` is null
-- Existing toggle tests updated to use `mockRpc`
+- Existing toggle and pin tests updated to use `mockRpc`
 
 **Full suite:** `npx vitest run` after each task — no regressions.
