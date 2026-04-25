@@ -29,27 +29,22 @@ export default function WeeklyCalendarPage() {
   )
 
   async function handleDropOnCell(day: number, slot: CalendarSlot, id: string) {
-    console.log('[DROP] id:', id, 'target:', day, slot, 'isChorePrefix:', id.startsWith(CHORE_DRAG_PREFIX))
     if (id.startsWith(CHORE_DRAG_PREFIX)) {
       const choreId = id.slice(CHORE_DRAG_PREFIX.length)
-      console.log('[DROP] path: self-assign-chore choreId:', choreId)
       await supabase.functions.invoke('self-assign-chore', {
         body: { chore_id: choreId, calendar_day: day, calendar_slot: slot },
       })
     } else {
-      console.log('[DROP] path: reschedule_assignment')
       const { error } = await supabase.rpc('reschedule_assignment', {
         p_assignment_id: id,
         p_day: day,
         p_slot: slot,
       })
-      console.log('[DROP] reschedule_assignment result error:', error)
       if (error) {
         toast({ variant: 'destructive', title: 'שגיאה', description: error.message })
         return
       }
     }
-    console.log('[DROP] calling refetch')
     refetch()
   }
 
