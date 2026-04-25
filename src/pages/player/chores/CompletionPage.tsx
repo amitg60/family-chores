@@ -67,6 +67,8 @@ export default function CompletionPage() {
           completion_id: completion.id,
         })
         if (rpcError) { setError('שגיאה בקבלת המטבעות'); return }
+        // Best-effort: DB already has photo_url = null via RPC; cron covers any orphan
+        await supabase.storage.from('completion-photos').remove([filePath])
       }
 
       navigate('/player')

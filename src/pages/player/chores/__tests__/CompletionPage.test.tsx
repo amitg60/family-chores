@@ -153,4 +153,39 @@ describe('CompletionPage', () => {
     await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/player'))
     expect(mockRpc).not.toHaveBeenCalled()
   })
+
+  it('calls storage.remove() with the uploaded file path after trust 4+ approve_completion succeeds', async () => {
+    mockTrustLevel = 4
+    const storageMock = makeStorageMock({ error: null })
+    storageMock.remove = vi.fn().mockResolvedValue({ error: null })
+    mockStorageFrom.mockReturnValue(storageMock)
+    mockFrom.mockReturnValue(makeInsertChain({ data: { id: 'comp1' }, error: null }))
+    mockRpc.mockResolvedValue({ error: null })
+    renderPage()
+
+    const file = new File(['img'], 'photo.jpg', { type: 'image/jpeg' })
+    await userEvent.upload(screen.getByLabelText('תמונת הוכחה'), file)
+    await userEvent.click(screen.getByRole('button', { name: 'שלח הוכחה' }))
+
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/player'))
+    expect(storageMock.remove).toHaveBeenCalledWith(
+      expect.arrayContaining([expect.stringMatching(/^p1\/.+\.webp$/)])
+    )
+  })
+
+  it('navigates to /player even when storage.remove() fails for trust 4+ players', async () => {
+    mockTrustLevel = 4
+    const storageMock = makeStorageMock({ error: null })
+    storageMock.remove = vi.fn().mockResolvedValue({ error: { message: 'storage error' } })
+    mockStorageFrom.mockReturnValue(storageMock)
+    mockFrom.mockReturnValue(makeInsertChain({ data: { id: 'comp1' }, error: null }))
+    mockRpc.mockResolvedValue({ error: null })
+    renderPage()
+
+    const file = new File(['img'], 'photo.jpg', { type: 'image/jpeg' })
+    await userEvent.upload(screen.getByLabelText('תמונת הוכחה'), file)
+    await userEvent.click(screen.getByRole('button', { name: 'שלח הוכחה' }))
+
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/player'))
+  })
 })
