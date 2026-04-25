@@ -109,13 +109,15 @@ No PII stored in notification metadata beyond IDs.
 3. **`toggle_reminder` resets on enable only** — re-enabling always re-arms; disabling leaves `reminder_sent_at` unchanged
 
 **Re-arm triggers (two paths):**
-1. Player toggles reminder OFF → ON via `toggle_reminder` RPC
-2. Player moves assignment to a different day or slot via `reschedule_assignment` RPC — server compares old vs new `calendar_day`/`calendar_slot` and resets `reminder_sent_at = NULL` only when at least one differs
+1. Player moves assignment to a different day or slot via `reschedule_assignment` RPC — `reminder_enabled` stays true, `reminder_sent_at` silently resets to NULL. No toggle needed. Cron fires for the new slot automatically.
+2. Player toggles reminder OFF → ON via `toggle_reminder` RPC — for cases where the reminder already fired on the current slot and the player wants it again without moving.
+
+**Key UX principle:** Reschedule = silent re-arm. Player sets reminder once; it follows the chore as it moves.
 
 **What does NOT reset `reminder_sent_at`:**
 - Edits to unrelated fields (title, coin value, notes)
 - Toggling reminder OFF
-- Unpinning (day/slot → null): technically a slot change, so reset fires — but reminder won't fire anyway for unslotted assignments
+- Unpinning (day/slot → null): reset fires (intentional — ensures fresh reminder on any subsequent re-pin)
 
 **Reset is always server-side.** Client never writes `reminder_sent_at` directly. No client-side bypass possible.
 
@@ -130,7 +132,7 @@ All other writes create NEW rows (pool pickup via `self-assign-chore` Edge Funct
 - Reschedule commits before cron SELECT: cron sees new slot, slot doesn't match window, skips. Correct.
 - Cron locks first: fires notification for old slot (valid — assignment was on that slot), commits. Reschedule then resets `reminder_sent_at = NULL` and moves to new slot. New slot reminder fires at its window. Player receives two notifications (both valid). No data corruption, no missed reminders.
 
-**UI copy:** Show a hint below the reminder checkbox only when `reminder_enabled=true` AND `reminder_sent_at IS NOT NULL` (reminder already fired for current slot, player hasn't moved or re-toggled): `"תזכורת נשלחה כבר — כבה והדלק מחדש כדי לשלוח שוב"` ("Reminder already sent — toggle off and on to re-arm").
+**UI copy:** Show a hint below the reminder checkbox only when `reminder_enabled=true` AND `reminder_sent_at IS NOT NULL` (reminder already fired for current slot; player has not moved or re-toggled since): `"תזכורת נשלחה — העבר למשבצת אחרת או כבה והדלק מחדש"` ("Reminder sent — move to a different slot or toggle off and on"). Hint disappears automatically when player reschedules (server resets `reminder_sent_at = NULL`).
 
 ---
 
