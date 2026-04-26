@@ -52,11 +52,13 @@ Player dismisses rejected proposal
 ### 3.1 New columns
 
 ```sql
-ALTER TABLE chores  ADD COLUMN IF NOT EXISTS proposal_rejection_reason TEXT NULL;
-ALTER TABLE rewards ADD COLUMN IF NOT EXISTS proposal_rejection_reason TEXT NULL;
+ALTER TABLE chores  ADD COLUMN IF NOT EXISTS proposal_rejection_reason TEXT NULL
+  CHECK (proposal_rejection_reason IS NULL OR char_length(proposal_rejection_reason) <= 500);
+ALTER TABLE rewards ADD COLUMN IF NOT EXISTS proposal_rejection_reason TEXT NULL
+  CHECK (proposal_rejection_reason IS NULL OR char_length(proposal_rejection_reason) <= 500);
 ```
 
-Populated only when admin rejects a player proposal. Admin-created rows and regular archive actions leave it NULL.
+Populated only when admin rejects a player proposal. Admin-created rows and regular archive actions leave it NULL. The 500-character limit prevents abuse — enforced at DB level; admin UI also enforces `maxLength={500}` on the textarea.
 
 ### 3.2 New notification type
 
@@ -64,23 +66,42 @@ Populated only when admin rejects a player proposal. Admin-created rows and regu
 ALTER TYPE notification_type ADD VALUE IF NOT EXISTS 'proposal_submitted';
 ```
 
-### 3.3 Trigger — `notify_chore_proposal_submitted()`
+### 3.3 Performance index
 
-Fires AFTER INSERT on `chores` WHERE `proposed_by IS NOT NULL`. Looks up all admin profiles in `NEW.family_id`, inserts one `proposal_submitted` notification per admin:
+`idx_profiles_family_id` already exists on `profiles(family_id)`. Add a partial index for the admin-lookup hot path in both triggers:
+
+```sql
+CREATE INDEX IF NOT EXISTS idx_profiles_family_admins
+  ON profiles (family_id)
+  WHERE role = 'admin';
+```
+
+This replaces a full `family_id` scan with a small partial index containing only admin rows.
+
+### 3.4 Trigger — `notify_chore_proposal_submitted()`
+
+Fires AFTER INSERT on `chores`. Guards at the top of the function body:
+
+```sql
+IF NEW.proposed_by IS NULL THEN RETURN NEW; END IF;
+IF NEW.status <> 'pending_approval' THEN RETURN NEW; END IF;
+```
+
+These ensure admin-created rows (`proposed_by IS NULL`) and any hypothetical INSERT with a non-pending status never emit a `proposal_submitted` notification. After the guards, looks up all admin profiles in `NEW.family_id` using `idx_profiles_family_admins`, inserts one `proposal_submitted` notification per admin:
 
 - `title_he`: `'הצעת משימה חדשה'`
 - `body_he`: `'"' || NEW.title || '" הוצע על ידי ' || <proposer_name>`
 - `related_entity_id`: `NEW.id`
 
-### 3.4 Trigger — `notify_reward_proposal_submitted()`
+### 3.5 Trigger — `notify_reward_proposal_submitted()`
 
-Mirror of 3.3 on the `rewards` table:
+Mirror of 3.4 on the `rewards` table. Same guards (`proposed_by IS NULL` → skip, `status <> 'pending_approval'` → skip):
 
 - `title_he`: `'הצעת פרס חדש'`
 - `body_he`: `'"' || NEW.title || '" הוצע על ידי ' || <proposer_name>`
 - `related_entity_id`: `NEW.id`
 
-### 3.5 Update `notify_proposal_resolved` (migration 012)
+### 3.6 Update `notify_proposal_resolved` (migration 012)
 
 Replace with `CREATE OR REPLACE FUNCTION notify_proposal_resolved()`. The rejection branch updates the body to include the reason if present:
 
@@ -95,7 +116,7 @@ END IF;
 
 The trigger on `chores` already exists (`trg_notify_proposal_resolved`). The same function also needs to cover `rewards` — add an identical trigger on the `rewards` table (`trg_notify_reward_proposal_resolved`).
 
-### 3.6 RPC — `dismiss_rejected_proposal`
+### 3.7 RPC — `dismiss_rejected_proposal`
 
 ```sql
 CREATE OR REPLACE FUNCTION dismiss_rejected_proposal(
@@ -129,6 +150,42 @@ $$;
 GRANT EXECUTE ON FUNCTION dismiss_rejected_proposal(TEXT, UUID) TO authenticated;
 ```
 
+**RLS note:** There is no DELETE policy for players on `chores` or `rewards`. The RPC is `SECURITY DEFINER` and bypasses RLS — this is intentional. Authorization is enforced inside the RPC via `proposed_by = auth.uid() AND status = 'archived'`. No client can delete a chore/reward row directly.
+
+**Dangling references:** `notifications.related_entity_id` is a UUID (no FK). When `dismiss_rejected_proposal` deletes the row, any `proposal_submitted` or `proposal_resolved` notifications that reference it retain their `related_entity_id`. These notifications are read-only display items; the app does not attempt to re-fetch the referenced entity from dismissed notifications. This is acceptable.
+
+### 3.8 Rejected proposal retention
+
+Undismissed rejected proposals (player never opened the dismissed dialog) accumulate indefinitely. The weekly `cleanup-photos` Edge Function (Job 3) will be extended to delete rejected proposals older than 30 days:
+
+```
+DELETE FROM chores
+WHERE status = 'archived'
+  AND proposed_by IS NOT NULL
+  AND updated_at < now() - interval '30 days'
+
+DELETE FROM rewards
+WHERE status = 'archived'
+  AND proposed_by IS NOT NULL
+  AND updated_at < now() - interval '30 days'
+```
+
+This is added as Job 3 in the existing `cleanup-photos` function (rename or extend — implementation detail for the plan). Count logged in `system_logs` result JSON as `proposals_cleaned`.
+
+### 3.9 RLS policy audit
+
+Existing policies already cover all new paths:
+
+| Operation | Policy | Covers |
+|---|---|---|
+| Player INSERT chore proposal | `chores: players can propose (status=pending_approval)` | `proposed_by = auth.uid()`, `status = 'pending_approval'`, `family_id = get_my_family_id()` |
+| Player INSERT reward proposal | `rewards: players can propose (status=pending_approval)` | Same |
+| Player SELECT own proposals | `chores: family members can view` | `family_id = get_my_family_id()` — player filters by `proposed_by = auth.uid()` in query |
+| Admin UPDATE rejection reason | `chores: admins can update` | `is_admin() AND family_id = get_my_family_id()` |
+| Player DELETE rejected proposal | None — handled by `SECURITY DEFINER` RPC only | Direct DELETE blocked by absence of any player DELETE policy |
+
+No new RLS policies needed. The rewards SELECT policy (`rewards: family members can view active`) shows all statuses including `pending_approval` — the player "My Proposals" section explicitly filters `proposed_by = auth.uid()`, so other players' proposals are not shown even though the policy permits reading them.
+
 ---
 
 ## 4. Edge Function — `notify-admin-proposal`
@@ -138,10 +195,13 @@ New function. Triggered by two DB webhooks: INSERT on `chores` and INSERT on `re
 **Auth:** `x-webhook-secret` header validated against `WEBHOOK_SECRET` env var (same pattern as `notify-admin-completion`).
 
 **Logic:**
-1. If `NEW.proposed_by IS NULL` → skip silently (admin-created, not a proposal)
-2. Look up proposer name from `profiles`
-3. Look up all admin profiles in `NEW.family_id`
-4. For each admin: fetch auth email, send Resend email
+1. If `NEW.proposed_by IS NULL` → skip silently (admin-created, not a proposal), return 200
+2. If `NEW.status <> 'pending_approval'` → skip silently, return 200 (defense-in-depth against webhook replays of edited rows)
+3. Look up proposer name from `profiles`
+4. Look up all admin profiles in `NEW.family_id`
+5. For each admin: fetch auth email, send Resend email with idempotency key
+
+**Idempotency:** Each Resend API call includes the `Idempotency-Key` header set to `proposal-{NEW.id}-admin-{admin.id}`. Resend deduplicates on this key for 24 hours, so webhook retries or accidental double-fires do not send duplicate emails to the same admin for the same proposal.
 
 **Email content:**
 
@@ -205,7 +265,7 @@ Currently, "Reject" on a proposal card calls `.update({ status: 'archived' })` d
 
 - For proposal cards (`proposed_by IS NOT NULL`): clicking Reject opens a dialog:
   - Title: "דחיית הצעה"
-  - Optional textarea: "סיבת הדחייה (אופציונלי)" with placeholder "ניתן להשאיר ריק..."
+  - Optional textarea: "סיבת הדחייה (אופציונלי)" with placeholder "ניתן להשאיר ריק...", `maxLength={500}`
   - Buttons: "ביטול" + "דחה הצעה" (destructive, always enabled)
   - On confirm: `.update({ status: 'archived', proposal_rejection_reason: reason.trim() || null })`
 
@@ -252,10 +312,12 @@ Admins can edit any active chore or reward — including ones that were player-p
 - `dismiss_rejected_proposal('chore', id)` with own pending proposal → exception
 - `dismiss_rejected_proposal('reward', id)` → same three cases
 - `dismiss_rejected_proposal('invalid', id)` → exception
-- Trigger: INSERT chore with `proposed_by` set → `proposal_submitted` notification created for each admin in family
+- Trigger: INSERT chore with `proposed_by` set + `status = 'pending_approval'` → `proposal_submitted` notification created for each admin in family
 - Trigger: INSERT chore with `proposed_by = NULL` → no `proposal_submitted` notification
+- Trigger: INSERT chore with `proposed_by` set + `status = 'active'` (hypothetical) → no `proposal_submitted` notification (status guard)
 - `notify_proposal_resolved`: rejection with `proposal_rejection_reason` set → reason appears in `body_he`
 - `notify_proposal_resolved`: rejection with `proposal_rejection_reason = NULL` → generic body, no crash
+- Column constraint: INSERT chore with `proposal_rejection_reason` > 500 chars → DB error
 
 ### Player UI
 - Chore proposal form: empty title → submit disabled; coin_value = 0 → submit disabled; valid form → INSERT called with correct fields; success → dialog closes, proposals section refetches
@@ -271,8 +333,10 @@ Admins can edit any active chore or reward — including ones that were player-p
 - Missing `x-webhook-secret` → 401
 - Wrong secret → 401
 - Payload with `proposed_by = null` → skipped, 200
-- Valid chore proposal payload → email sent to each admin in family
-- Valid reward proposal payload → email sent to each admin in family
+- Payload with `status != 'pending_approval'` → skipped, 200
+- Valid chore proposal payload → email sent to each admin in family with correct idempotency key
+- Valid reward proposal payload → email sent to each admin in family with correct idempotency key
+- Same proposal payload sent twice → Resend idempotency key prevents duplicate email
 
 ---
 
