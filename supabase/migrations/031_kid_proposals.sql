@@ -89,6 +89,7 @@ CREATE OR REPLACE TRIGGER trg_notify_reward_proposal_submitted
 
 -- ── 6. Update notify_proposal_resolved: include rejection reason + cover rewards
 --    Original function (migration 012) only fired on chores and lacked reason.
+--    Note: 031a applies the corrected version (uses TG_TABLE_NAME for titles).
 CREATE OR REPLACE FUNCTION notify_proposal_resolved()
 RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = public
@@ -103,10 +104,14 @@ BEGIN
   IF NEW.status NOT IN ('active', 'archived') THEN RETURN NEW; END IF;
 
   IF NEW.status = 'active' THEN
-    v_title_he := 'הצעת המשימה שלך אושרה';
-    v_body_he  := '"' || NEW.title || '" אושרה ונוספה לרשימת המשימות';
+    v_title_he := CASE WHEN TG_TABLE_NAME = 'rewards'
+                       THEN 'הצעת הפרס שלך אושרה'
+                       ELSE 'הצעת המשימה שלך אושרה' END;
+    v_body_he  := '"' || NEW.title || '" אושרה ונוספה לרשימה';
   ELSE
-    v_title_he := 'הצעת המשימה שלך נדחתה';
+    v_title_he := CASE WHEN TG_TABLE_NAME = 'rewards'
+                       THEN 'הצעת הפרס שלך נדחתה'
+                       ELSE 'הצעת המשימה שלך נדחתה' END;
     v_body_he  := '"' || NEW.title || '" נדחתה על ידי המנהל'
                   || CASE WHEN NEW.proposal_rejection_reason IS NOT NULL
                           THEN ': ' || NEW.proposal_rejection_reason
