@@ -109,7 +109,32 @@ describe('ChoresPage', () => {
     })
   })
 
-  it('reject button sets status to archived and refetches', async () => {
+  it('reject on proposal opens rejection reason dialog, not direct update', async () => {
+    mockUseChores.mockReturnValue({ chores: [pendingChore], loading: false, error: null, refetch: mockRefetch })
+    const mockUpdate = vi.fn()
+    mockFrom.mockReturnValue({ update: mockUpdate })
+
+    renderChoresPage()
+    await userEvent.click(screen.getByRole('button', { name: 'דחה' }))
+
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'דחיית הצעה' })).toBeInTheDocument()
+    expect(mockUpdate).not.toHaveBeenCalled()
+  })
+
+  it('rejection dialog cancel closes dialog without calling update', async () => {
+    mockUseChores.mockReturnValue({ chores: [pendingChore], loading: false, error: null, refetch: mockRefetch })
+    mockFrom.mockReturnValue({ update: vi.fn() })
+
+    renderChoresPage()
+    await userEvent.click(screen.getByRole('button', { name: 'דחה' }))
+    await userEvent.click(screen.getByRole('button', { name: 'ביטול' }))
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(mockRefetch).not.toHaveBeenCalled()
+  })
+
+  it('rejection dialog confirm without reason calls update with proposal_rejection_reason null', async () => {
     mockUseChores.mockReturnValue({ chores: [pendingChore], loading: false, error: null, refetch: mockRefetch })
     const mockEq = vi.fn().mockResolvedValue({ error: null })
     const mockUpdate = vi.fn().mockReturnValue({ eq: mockEq })
@@ -117,10 +142,34 @@ describe('ChoresPage', () => {
 
     renderChoresPage()
     await userEvent.click(screen.getByRole('button', { name: 'דחה' }))
+    await userEvent.click(screen.getByRole('button', { name: 'דחה הצעה' }))
 
     await waitFor(() => {
-      expect(mockUpdate).toHaveBeenCalledWith({ status: 'archived' })
+      expect(mockUpdate).toHaveBeenCalledWith({
+        status: 'archived',
+        proposal_rejection_reason: null,
+      })
       expect(mockRefetch).toHaveBeenCalled()
+    })
+  })
+
+  it('rejection dialog confirm with reason calls update with trimmed reason', async () => {
+    mockUseChores.mockReturnValue({ chores: [pendingChore], loading: false, error: null, refetch: mockRefetch })
+    const mockEq = vi.fn().mockResolvedValue({ error: null })
+    const mockUpdate = vi.fn().mockReturnValue({ eq: mockEq })
+    mockFrom.mockReturnValue({ update: mockUpdate })
+
+    renderChoresPage()
+    await userEvent.click(screen.getByRole('button', { name: 'דחה' }))
+    const textarea = screen.getByRole('textbox')
+    await userEvent.type(textarea, 'יקר מדי')
+    await userEvent.click(screen.getByRole('button', { name: 'דחה הצעה' }))
+
+    await waitFor(() => {
+      expect(mockUpdate).toHaveBeenCalledWith({
+        status: 'archived',
+        proposal_rejection_reason: 'יקר מדי',
+      })
     })
   })
 

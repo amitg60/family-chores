@@ -37,6 +37,8 @@ export default function ChoresPage() {
   const [mutationError, setMutationError] = useState<string | null>(null)
   const [choreToDelete, setChoreToDelete] = useState<Chore | null>(null)
   const [pendingWarningChoreId, setPendingWarningChoreId] = useState<string | null>(null)
+  const [rejectionTarget, setRejectionTarget] = useState<Chore | null>(null)
+  const [rejectionReason, setRejectionReason] = useState('')
 
   const activeChores = chores.filter(c => c.status === 'active')
   const pendingChores = chores.filter(c => c.status === 'pending_approval')
@@ -61,10 +63,27 @@ export default function ChoresPage() {
     if (error) { setMutationError('שגיאה באישור ההצעה') } else { refetch() }
   }
 
-  async function rejectChore(chore: Chore) {
+  function openRejectDialog(chore: Chore) {
     setMutationError(null)
-    const { error } = await supabase.from('chores').update({ status: 'archived' }).eq('id', chore.id)
-    if (error) { setMutationError('שגיאה בדחיית ההצעה') } else { refetch() }
+    setRejectionReason('')
+    setRejectionTarget(chore)
+  }
+
+  async function confirmRejectChore() {
+    if (!rejectionTarget) return
+    setMutationError(null)
+    const reason = rejectionReason.trim() || null
+    const { error } = await supabase
+      .from('chores')
+      .update({ status: 'archived', proposal_rejection_reason: reason })
+      .eq('id', rejectionTarget.id)
+    if (error) {
+      setMutationError('שגיאה בדחיית ההצעה')
+    } else {
+      setRejectionTarget(null)
+      setRejectionReason('')
+      refetch()
+    }
   }
 
   async function handleDeleteClick(chore: Chore) {
@@ -154,7 +173,7 @@ export default function ChoresPage() {
                 </div>
                 <div className="flex gap-2">
                   <Button size="sm" onClick={() => approveChore(chore)}>אשר</Button>
-                  <Button size="sm" variant="outline" onClick={() => rejectChore(chore)}>דחה</Button>
+                  <Button size="sm" variant="outline" onClick={() => openRejectDialog(chore)}>דחה</Button>
                 </div>
               </div>
             ))}
@@ -226,6 +245,37 @@ export default function ChoresPage() {
               onClick={() => { if (choreToDelete) confirmDeleteChore(choreToDelete) }}
             >
               מחק
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={rejectionTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) { setRejectionTarget(null); setRejectionReason('') }
+        }}
+      >
+        <DialogContent dir="rtl">
+          <DialogHeader>
+            <DialogTitle>דחיית הצעה</DialogTitle>
+            <DialogDescription>
+              סיבת הדחייה (אופציונלי)
+            </DialogDescription>
+          </DialogHeader>
+          <textarea
+            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm min-h-[80px] resize-none focus:outline-none focus:ring-2 focus:ring-ring"
+            placeholder="ניתן להשאיר ריק..."
+            maxLength={500}
+            value={rejectionReason}
+            onChange={(e) => setRejectionReason(e.target.value)}
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setRejectionTarget(null); setRejectionReason('') }}>
+              ביטול
+            </Button>
+            <Button variant="destructive" onClick={confirmRejectChore}>
+              דחה הצעה
             </Button>
           </DialogFooter>
         </DialogContent>
