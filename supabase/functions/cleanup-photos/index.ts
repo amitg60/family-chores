@@ -34,6 +34,7 @@ export async function handler(req: Request): Promise<Response> {
 
   let orphansCleaned = 0
   let staleRejected = 0
+  let proposalsCleaned = 0
   let errors = 0
 
   // ── Job 1: Orphaned photos ────────────────────────────────────────────────
@@ -152,8 +153,37 @@ export async function handler(req: Request): Promise<Response> {
     }
   }
 
+  // ── Job 3: Stale rejected proposals ──────────────────────────────────────
+  const { error: choreProposalError, count: choreCount } = await supabase
+    .from('chores')
+    .delete({ count: 'exact' })
+    .eq('status', 'archived')
+    .not('proposed_by', 'is', null)
+    .lt('updated_at', thirtyDaysAgo)
+
+  if (choreProposalError) {
+    console.error(JSON.stringify({ error: 'CHORE_PROPOSALS_CLEANUP_FAILED', message: choreProposalError.message }))
+    errors++
+  } else {
+    proposalsCleaned += choreCount ?? 0
+  }
+
+  const { error: rewardProposalError, count: rewardCount } = await supabase
+    .from('rewards')
+    .delete({ count: 'exact' })
+    .eq('status', 'archived')
+    .not('proposed_by', 'is', null)
+    .lt('updated_at', thirtyDaysAgo)
+
+  if (rewardProposalError) {
+    console.error(JSON.stringify({ error: 'REWARD_PROPOSALS_CLEANUP_FAILED', message: rewardProposalError.message }))
+    errors++
+  } else {
+    proposalsCleaned += rewardCount ?? 0
+  }
+
   // ── Audit log ─────────────────────────────────────────────────────────────
-  const result = { orphans_cleaned: orphansCleaned, stale_rejected: staleRejected, errors }
+  const result = { orphans_cleaned: orphansCleaned, stale_rejected: staleRejected, proposals_cleaned: proposalsCleaned, errors }
   const { error: logError } = await supabase.from('system_logs').insert({
     function_name: 'cleanup-photos',
     result,
