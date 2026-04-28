@@ -19,12 +19,16 @@ const mockUseRewards = vi.mocked(useRewards)
 const activeReward = {
   id: 'r1', family_id: 'f1', title: 'גלידה', description: null,
   coin_cost: 20, type: 'store' as const, status: 'active' as const,
-  proposed_by: null, approved_by: null, stock: null,
+  proposed_by: null, approved_by: null,
+  proposal_rejection_reason: null,
+  stock: null,
   created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z',
 }
 
 const pendingReward = {
-  ...activeReward, id: 'r2', title: 'סרט קולנוע', status: 'pending_approval' as const,
+  ...activeReward, id: 'r2', title: 'סרט קולנוע',
+  status: 'pending_approval' as const,
+  proposed_by: 'player-1',
 }
 
 const limitedReward = {

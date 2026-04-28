@@ -15,7 +15,7 @@ export type NotificationType =
   | 'chore_assigned' | 'completion_reviewed' | 'trade_received' | 'trade_resolved'
   | 'redemption_resolved' | 'proposal_resolved' | 'penalty_applied' | 'achievement_earned'
   | 'reminder' | 'alias_vote_requested' | 'alias_vote_resolved' | 'chore_deleted'
-  | 'trust_level_changed'
+  | 'trust_level_changed' | 'proposal_submitted'
 export type FeedbackCategory = 'bug' | 'improvement' | 'love' | 'bothers'
 export type FeedbackMood = 'happy' | 'neutral' | 'frustrated'
 
@@ -51,6 +51,7 @@ export interface Chore {
   status: ChoreStatus
   proposed_by: string | null
   approved_by: string | null
+  proposal_rejection_reason: string | null
   due_date: string | null
   last_traded_price: number | null
   is_pool_visible: boolean
@@ -97,6 +98,7 @@ export interface Reward {
   status: RewardStatus
   proposed_by: string | null
   approved_by: string | null
+  proposal_rejection_reason: string | null
   stock: number | null
   created_at: string
   updated_at: string

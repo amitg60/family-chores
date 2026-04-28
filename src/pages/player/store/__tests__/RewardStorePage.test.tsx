@@ -22,7 +22,9 @@ const mockUseRewards = vi.mocked(useRewards)
 const fakeReward = {
   id: 'r1', family_id: 'f1', title: 'גלידה', description: 'גלידת וניל',
   coin_cost: 20, type: 'store' as const, status: 'active' as const,
-  proposed_by: null, approved_by: null, stock: null,
+  proposed_by: null, approved_by: null,
+  proposal_rejection_reason: null,
+  stock: null,
   created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z',
 }
 
