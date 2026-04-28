@@ -397,3 +397,6 @@ s3_secret_key = "env(S3_SECRET_KEY)"
 
 [functions.cleanup-photos]
 verify_jwt = false
+
+[functions.notify-admin-proposal]
+verify_jwt = false
