@@ -3,6 +3,7 @@ import { useRewards } from '../../../hooks/useRewards'
 import { useAuth } from '../../../contexts/AuthContext'
 import { useMyProposals } from '../../../hooks/useMyProposals'
 import { supabase } from '../../../lib/supabase'
+import { useToast } from '../../../hooks/use-toast'
 import { Button } from '../../../components/ui/button'
 import { Badge } from '../../../components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card'
@@ -18,6 +19,7 @@ import type { Reward } from '../../../types/database'
 
 export default function RewardStorePage() {
   const { profile } = useAuth()
+  const { toast } = useToast()
   const { rewards, loading } = useRewards()
   const { proposals: myProposals, refetch: refetchProposals } = useMyProposals(
     'rewards', profile?.id, profile?.family_id ?? undefined
@@ -74,7 +76,9 @@ export default function RewardStorePage() {
     })
     setDismissing(false)
     setDismissTarget(null)
-    if (!error) {
+    if (error) {
+      toast({ title: 'שגיאה', description: 'לא ניתן היה לסגור את ההצעה. נסה שוב.' })
+    } else {
       refetchProposals()
     }
   }

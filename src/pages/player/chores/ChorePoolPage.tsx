@@ -5,6 +5,7 @@ import { useChoreAssignments } from '../../../hooks/useChoreAssignments'
 import { useAuth } from '../../../contexts/AuthContext'
 import { useMyProposals } from '../../../hooks/useMyProposals'
 import { supabase } from '../../../lib/supabase'
+import { useToast } from '../../../hooks/use-toast'
 import { Button } from '../../../components/ui/button'
 import { Badge } from '../../../components/ui/badge'
 import { Card, CardContent } from '../../../components/ui/card'
@@ -27,6 +28,7 @@ const difficultyLabel: Record<ChoreDifficulty, string> = {
 
 export default function ChorePoolPage() {
   const { profile } = useAuth()
+  const { toast } = useToast()
   const { chores, loading: choresLoading, refetch } = useChores()
   const { assignments } = useChoreAssignments(profile?.id)
   const navigate = useNavigate()
@@ -136,7 +138,9 @@ export default function ChorePoolPage() {
     })
     setDismissing(false)
     setDismissTarget(null)
-    if (!error) {
+    if (error) {
+      toast({ title: 'שגיאה', description: 'לא ניתן היה לסגור את ההצעה. נסה שוב.' })
+    } else {
       refetchProposals()
     }
   }
