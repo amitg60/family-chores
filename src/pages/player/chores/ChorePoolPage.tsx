@@ -291,6 +291,7 @@ export default function ChorePoolPage() {
         <DialogContent dir="rtl">
           <DialogHeader>
             <DialogTitle>הצעה נדחתה</DialogTitle>
+            <DialogDescription className="sr-only">פרטי הדחייה</DialogDescription>
           </DialogHeader>
           <p className="text-sm">
             {dismissTarget?.proposal_rejection_reason
