@@ -6,11 +6,21 @@ import { Button } from '../../../components/ui/button'
 import { Badge } from '../../../components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card'
 import { Separator } from '../../../components/ui/separator'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '../../../components/ui/dialog'
 import type { Reward } from '../../../types/database'
 
 export default function RewardsPage() {
   const { rewards, loading, error, refetch } = useRewards()
   const [mutationError, setMutationError] = useState<string | null>(null)
+  const [rejectionTarget, setRejectionTarget] = useState<Reward | null>(null)
+  const [rejectionReason, setRejectionReason] = useState('')
 
   const activeRewards = rewards.filter(r => r.status === 'active')
   const pendingRewards = rewards.filter(r => r.status === 'pending_approval')
@@ -27,10 +37,27 @@ export default function RewardsPage() {
     if (error) { setMutationError('שגיאה באישור ההצעה') } else { refetch() }
   }
 
-  async function rejectReward(reward: Reward) {
+  function openRejectDialog(reward: Reward) {
     setMutationError(null)
-    const { error } = await supabase.from('rewards').update({ status: 'archived' }).eq('id', reward.id)
-    if (error) { setMutationError('שגיאה בדחיית ההצעה') } else { refetch() }
+    setRejectionReason('')
+    setRejectionTarget(reward)
+  }
+
+  async function confirmRejectReward() {
+    if (!rejectionTarget) return
+    setMutationError(null)
+    const reason = rejectionReason.trim() || null
+    const { error } = await supabase
+      .from('rewards')
+      .update({ status: 'archived', proposal_rejection_reason: reason })
+      .eq('id', rejectionTarget.id)
+    if (error) {
+      setMutationError('שגיאה בדחיית ההצעה')
+    } else {
+      setRejectionTarget(null)
+      setRejectionReason('')
+      refetch()
+    }
   }
 
   if (loading) {
@@ -72,7 +99,7 @@ export default function RewardsPage() {
                 </div>
                 <div className="flex gap-2">
                   <Button size="sm" onClick={() => approveReward(reward)}>אשר</Button>
-                  <Button size="sm" variant="outline" onClick={() => rejectReward(reward)}>דחה</Button>
+                  <Button size="sm" variant="outline" onClick={() => openRejectDialog(reward)}>דחה</Button>
                 </div>
               </div>
             ))}
@@ -115,6 +142,34 @@ export default function RewardsPage() {
           )}
         </CardContent>
       </Card>
+      <Dialog
+        open={rejectionTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) { setRejectionTarget(null); setRejectionReason('') }
+        }}
+      >
+        <DialogContent dir="rtl">
+          <DialogHeader>
+            <DialogTitle>דחיית הצעה</DialogTitle>
+            <DialogDescription>סיבת הדחייה (אופציונלי)</DialogDescription>
+          </DialogHeader>
+          <textarea
+            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm min-h-[80px] resize-none focus:outline-none focus:ring-2 focus:ring-ring"
+            placeholder="ניתן להשאיר ריק..."
+            maxLength={500}
+            value={rejectionReason}
+            onChange={(e) => setRejectionReason(e.target.value)}
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setRejectionTarget(null); setRejectionReason('') }}>
+              ביטול
+            </Button>
+            <Button variant="destructive" onClick={confirmRejectReward}>
+              דחה הצעה
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
