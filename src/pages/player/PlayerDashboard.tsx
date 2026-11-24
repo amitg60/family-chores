@@ -13,6 +13,7 @@ import { Button } from '../../components/ui/button'
 import { Badge } from '../../components/ui/badge'
 import { Card, CardContent } from '../../components/ui/card'
 import type { AssignmentStatus } from '../../types/database'
+import './PlayerDashboard-EnhancedUI.css'
 
 const statusLabel: Record<AssignmentStatus, string> = {
   pending: 'ממתין',
@@ -33,6 +34,11 @@ const statusVariant: Record<AssignmentStatus, 'default' | 'secondary' | 'destruc
 function getStatusLabel(a: { status: AssignmentStatus; hasRejection?: boolean }): string {
   if (a.status === 'pending' && a.hasRejection) return 'ממתין לשליחה מחדש'
   return statusLabel[a.status]
+}
+
+// Chores have no icon field: use a leading emoji in the title if there is one.
+function choreEmoji(title: string): string {
+  return title.match(/^\p{Extended_Pictographic}️?/u)?.[0] ?? '📋'
 }
 
 export default function PlayerDashboard() {
@@ -77,14 +83,6 @@ export default function PlayerDashboard() {
     .catch(err => console.error('[PlayerDashboard] achievement check failed', err))
   }, [profile, loading, assignments, achievementsLoading, achievements, earnedIds, totalCompletedAllTime])
 
-  function choreTitle(choreId: string): string {
-    return chores.find(c => c.id === choreId)?.title ?? 'משימה'
-  }
-
-  function choreCoins(choreId: string): number {
-    return chores.find(c => c.id === choreId)?.coin_value ?? 0
-  }
-
   // Group assignments by chore so recurring tasks with multiple slots show a count
   const grouped = assignments.reduce<Record<string, typeof assignments>>((acc, a) => {
     ;(acc[a.chore_id] ??= []).push(a)
@@ -97,67 +95,88 @@ export default function PlayerDashboard() {
   })
 
   return (
-    <div className="space-y-6" dir="rtl">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">המשימות שלי</h1>
-        <Button asChild>
-          <Link to="/player/pool">בחר משימה</Link>
-        </Button>
+    <div className="enhanced-dashboard" dir="rtl">
+      <div className="dashboard-header">
+        <div className="header-greeting">היי, {profile?.name}! 👋</div>
+        <div className="header-stats">
+          <div className="stat-badge" aria-label="מטבעות">
+            <span aria-hidden="true">🪙</span>
+            <span className="stat-number">{profile?.coin_balance ?? 0}</span>
+          </div>
+          <div className="stat-badge" aria-label="הישגים">
+            <span aria-hidden="true">🏅</span>
+            <span className="stat-number">{earnedIds.size}</span>
+          </div>
+        </div>
       </div>
 
       {feedItems.length > 0 && (
-        <div className="flex gap-2 overflow-x-auto pb-1">
+        <div className="feed-row">
           {feedItems.map(item => (
-            <div
-              key={item.id}
-              className="flex items-center gap-1 shrink-0 rounded-full bg-muted px-3 py-1 text-sm"
-            >
+            <div key={item.id} className="feed-chip">
               <span>{item.achievementIcon}</span>
               <span>{item.profileName}</span>
-              <span className="text-muted-foreground">{item.achievementTitle}</span>
+              <span className="feed-chip-muted">{item.achievementTitle}</span>
             </div>
           ))}
         </div>
       )}
 
-      {loading ? (
-        <div role="status" className="text-center py-8 text-muted-foreground">טוען...</div>
-      ) : assignments.length === 0 ? (
-        <p className="text-muted-foreground">אין משימות השבוע. לחץ על "בחר משימה" להוסיף.</p>
-      ) : (
-        <div className="space-y-3">
-          {displayGroups.map(({ representative: a, count }) => (
-            <Card key={a.chore_id}>
-              <CardContent className="py-3 flex items-center justify-between">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <p className="font-medium">{choreTitle(a.chore_id)}</p>
-                    {count > 1 && (
-                      <Badge variant="secondary" className="text-xs">
-                        {count} משימות
-                      </Badge>
-                    )}
-                  </div>
-                  <p className="text-sm text-muted-foreground">{choreCoins(a.chore_id)} מטבעות</p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Badge variant={statusVariant[a.status]}>
-                    {getStatusLabel(a)}
-                  </Badge>
-                  {(a.status === 'pending' || a.status === 'in_progress') && (
-                    <Button size="sm" asChild>
-                      <Link to={`/player/chores/${a.id}/complete`}>סיימתי</Link>
-                    </Button>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+      <div className="dashboard-content">
+        <div className="content-header">
+          <div>
+            <h1 className="content-title">המשימות שלי</h1>
+            <p className="content-subtitle">השלם משימות וזכה בעוד מטבעות!</p>
+          </div>
+          <Button asChild className="choose-chore-btn">
+            <Link to="/player/pool">בחר משימה</Link>
+          </Button>
         </div>
-      )}
+
+        {loading ? (
+          <div role="status" className="text-center py-8 text-muted-foreground">טוען...</div>
+        ) : assignments.length === 0 ? (
+          <div className="empty-state">
+            <div className="empty-emoji" aria-hidden="true">📋</div>
+            <div className="empty-text">אין משימות השבוע. בחר משימה כדי להתחיל!</div>
+          </div>
+        ) : (
+          <div className="tasks-container">
+            {displayGroups.map(({ representative: a, count }) => {
+              const chore = chores.find(c => c.id === a.chore_id)
+              const title = chore?.title ?? 'משימה'
+              const canComplete = a.status === 'pending' || a.status === 'in_progress'
+              return (
+                <div key={a.chore_id} className={`task-card task-${a.status}`}>
+                  <div className="task-emoji" aria-hidden="true">{choreEmoji(title)}</div>
+                  <div className="task-info">
+                    <div className="task-name">{title}</div>
+                    <div className="task-meta">
+                      <span className="task-coins">🪙 {chore?.coin_value ?? 0} מטבעות</span>
+                      <Badge variant={statusVariant[a.status]}>{getStatusLabel(a)}</Badge>
+                      {count > 1 && <Badge variant="secondary">{count} משימות</Badge>}
+                    </div>
+                  </div>
+                  {canComplete ? (
+                    <Link
+                      to={`/player/chores/${a.id}/complete`}
+                      className="checkbox-circle"
+                      aria-label="סיימתי"
+                      title="סיימתי"
+                    />
+                  ) : a.status === 'completed' ? (
+                    <span className="checkbox-circle checked" aria-hidden="true">✓</span>
+                  ) : null}
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
       {penalties.length > 0 && (
-        <div className="space-y-2">
-          <h2 className="text-lg font-semibold">היסטוריית הפסדים</h2>
+        <div className="dashboard-content space-y-2">
+          <h2 className="section-title">היסטוריית הפסדים</h2>
           {penalties.map(p => (
             <Card key={p.id}>
               <CardContent className="py-3 flex items-center justify-between">

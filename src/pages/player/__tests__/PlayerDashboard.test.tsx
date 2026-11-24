@@ -50,6 +50,7 @@ const fakeChore = {
   difficulty: 'easy' as const, assigned_to: null, recurrence_type: 'none' as const,
   status: 'active' as const, description: null, proposed_by: null,
   approved_by: null, due_date: null, last_traded_price: null,
+  proposal_rejection_reason: null, is_pool_visible: true,
   created_at: '2026-04-05T00:00:00Z', updated_at: '2026-04-05T00:00:00Z',
 }
 
@@ -149,6 +150,26 @@ describe('PlayerDashboard', () => {
     expect(screen.getByText('2 משימות')).toBeInTheDocument()
     // grouped → only one card for the chore
     expect(screen.getAllByText('כלי מטבח')).toHaveLength(1)
+  })
+
+  it('shows earned achievement count in the header', () => {
+    mockUseChoreAssignments.mockReturnValue({ assignments: [], loading: false, error: null, refetch: vi.fn() })
+    mockUseAchievements.mockReturnValue({
+      achievements: [], earnedIds: new Set(['x', 'y']), totalCompletedAllTime: 0,
+      loading: false, error: null, refetch: vi.fn(),
+    })
+    renderDashboard()
+    expect(screen.getByLabelText('הישגים')).toHaveTextContent('2')
+  })
+
+  it('shows a check, not a done link, for a completed assignment', () => {
+    mockUseChoreAssignments.mockReturnValue({
+      assignments: [{ ...fakeAssignment, status: 'completed' as const }], loading: false, error: null, refetch: vi.fn(),
+    })
+    mockUseChores.mockReturnValue({ chores: [fakeChore], loading: false, error: null, refetch: vi.fn() })
+    renderDashboard()
+    expect(screen.queryByRole('link', { name: 'סיימתי' })).not.toBeInTheDocument()
+    expect(screen.getByText('✓')).toBeInTheDocument()
   })
 
   it('does not show count badge for a single assignment', () => {
