@@ -154,32 +154,15 @@ export async function handler(req: Request): Promise<Response> {
   }
 
   // ── Job 3: Stale rejected proposals ──────────────────────────────────────
-  const { error: choreProposalError, count: choreCount } = await supabase
-    .from('chores')
-    .delete({ count: 'exact' })
-    .eq('status', 'archived')
-    .not('proposed_by', 'is', null)
-    .lt('updated_at', thirtyDaysAgo)
+  // SQL function skips proposals that have assignments/redemptions (approved and used).
+  const { data: deletedCount, error: proposalError } = await supabase
+    .rpc('delete_stale_rejected_proposals', { p_older_than: thirtyDaysAgo })
 
-  if (choreProposalError) {
-    console.error(JSON.stringify({ error: 'CHORE_PROPOSALS_CLEANUP_FAILED', message: choreProposalError.message }))
+  if (proposalError) {
+    console.error(JSON.stringify({ error: 'PROPOSALS_CLEANUP_FAILED', message: proposalError.message }))
     errors++
   } else {
-    proposalsCleaned += choreCount ?? 0
-  }
-
-  const { error: rewardProposalError, count: rewardCount } = await supabase
-    .from('rewards')
-    .delete({ count: 'exact' })
-    .eq('status', 'archived')
-    .not('proposed_by', 'is', null)
-    .lt('updated_at', thirtyDaysAgo)
-
-  if (rewardProposalError) {
-    console.error(JSON.stringify({ error: 'REWARD_PROPOSALS_CLEANUP_FAILED', message: rewardProposalError.message }))
-    errors++
-  } else {
-    proposalsCleaned += rewardCount ?? 0
+    proposalsCleaned += deletedCount ?? 0
   }
 
   // ── Audit log ─────────────────────────────────────────────────────────────
