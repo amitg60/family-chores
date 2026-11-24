@@ -26,6 +26,8 @@ import PenaltiesPage from './pages/admin/penalties/PenaltiesPage'
 import AchievementsPage from './pages/player/achievements/AchievementsPage'
 import ProfilePage from './pages/player/profile/ProfilePage'
 import EmailActionPage from './pages/EmailActionPage'
+import ForgotPasswordPage from './pages/ForgotPasswordPage'
+import ResetPasswordPage from './pages/ResetPasswordPage'
 
 function RootRedirect() {
   const { profile, session, loading } = useAuth()
@@ -42,6 +44,14 @@ export const router = createBrowserRouter([
   {
     path: '/login',
     element: <LoginPage />,
+  },
+  {
+    path: '/forgot-password',
+    element: <ForgotPasswordPage />,
+  },
+  {
+    path: '/reset-password',
+    element: <ResetPasswordPage />,
   },
   {
     path: '/signup',
