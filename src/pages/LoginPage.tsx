@@ -70,6 +70,9 @@ export default function LoginPage() {
             <Button type="submit" className="w-full" disabled={loading}>
               {loading ? 'מתחבר...' : 'כניסה'}
             </Button>
+            <p className="text-center text-sm">
+              <Link to="/forgot-password" className="underline">שכחתי סיסמה</Link>
+            </p>
             <p className="text-center text-sm text-muted-foreground">
               משפחה חדשה?{' '}
               <Link to="/signup" className="underline">צור חשבון</Link>

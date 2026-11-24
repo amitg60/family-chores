@@ -64,8 +64,8 @@ describe('RedemptionsPage', () => {
 
   it('grant calls direct update and refetches', async () => {
     mockUsePendingRedemptions.mockReturnValue({ redemptions: [fakeRedemption], loading: false, error: null, refetch: mockRefetch })
-    const mockEq = vi.fn().mockResolvedValue({ error: null })
-    const mockUpdate = vi.fn().mockReturnValue({ eq: mockEq })
+    const mockSelect = vi.fn().mockResolvedValue({ data: [{ id: 'red1' }], error: null })
+    const mockUpdate = vi.fn().mockReturnValue({ eq: vi.fn().mockReturnValue({ select: mockSelect }) })
     mockFrom.mockReturnValue({ update: mockUpdate })
 
     renderPage()
@@ -81,8 +81,8 @@ describe('RedemptionsPage', () => {
 
   it('shows error when grant fails', async () => {
     mockUsePendingRedemptions.mockReturnValue({ redemptions: [fakeRedemption], loading: false, error: null, refetch: mockRefetch })
-    const mockEq = vi.fn().mockResolvedValue({ error: { message: 'denied' } })
-    mockFrom.mockReturnValue({ update: vi.fn().mockReturnValue({ eq: mockEq }) })
+    const mockSelect = vi.fn().mockResolvedValue({ data: null, error: { message: 'denied' } })
+    mockFrom.mockReturnValue({ update: vi.fn().mockReturnValue({ eq: vi.fn().mockReturnValue({ select: mockSelect }) }) })
 
     renderPage()
     await userEvent.click(screen.getByRole('button', { name: 'אשר' }))
@@ -91,6 +91,20 @@ describe('RedemptionsPage', () => {
       expect(screen.getByRole('alert')).toHaveTextContent('שגיאה במתן הפרס')
     )
     expect(mockRefetch).not.toHaveBeenCalled()
+  })
+
+  it('shows already-handled when grant matches no pending row', async () => {
+    mockUsePendingRedemptions.mockReturnValue({ redemptions: [fakeRedemption], loading: false, error: null, refetch: mockRefetch })
+    const mockSelect = vi.fn().mockResolvedValue({ data: [], error: null })
+    mockFrom.mockReturnValue({ update: vi.fn().mockReturnValue({ eq: vi.fn().mockReturnValue({ select: mockSelect }) }) })
+
+    renderPage()
+    await userEvent.click(screen.getByRole('button', { name: 'אשר' }))
+
+    await waitFor(() =>
+      expect(screen.getByRole('alert')).toHaveTextContent('הבקשה כבר טופלה')
+    )
+    expect(mockRefetch).toHaveBeenCalled()
   })
 
   it('decline calls decline_redemption RPC and refetches', async () => {

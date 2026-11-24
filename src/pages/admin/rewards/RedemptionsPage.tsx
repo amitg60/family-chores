@@ -10,11 +10,14 @@ export default function RedemptionsPage() {
 
   async function grant(redemption: RedemptionWithDetails) {
     setActionError(null)
-    const { error } = await supabase
+    // RLS only matches pending rows, so zero rows = already resolved by someone else
+    const { data, error } = await supabase
       .from('reward_redemptions')
       .update({ status: 'granted', resolved_at: new Date().toISOString() })
       .eq('id', redemption.id)
+      .select('id')
     if (error) { setActionError('שגיאה במתן הפרס'); return }
+    if (!data?.length) setActionError('הבקשה כבר טופלה')
     refetch()
   }
 
