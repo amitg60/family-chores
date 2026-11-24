@@ -43,6 +43,18 @@ describe('AuthContext', () => {
     expect(screen.getByText('loading')).toBeInTheDocument()
   })
 
+  it('sends a password-recovery sign-in to /reset-password', async () => {
+    mockGetSession.mockResolvedValue({ data: { session: null } })
+    const replace = vi.fn()
+    vi.stubGlobal('location', { ...window.location, pathname: '/', replace })
+    renderWithAuth()
+    const calls = mockOnAuthStateChange.mock.calls as unknown as [(e: string, s: unknown) => void][]
+    const callback = calls[0][0]
+    callback('PASSWORD_RECOVERY', { user: { id: 'u1' } })
+    expect(replace).toHaveBeenCalledWith('/reset-password')
+    vi.unstubAllGlobals()
+  })
+
   it('shows logged-out state when no session', async () => {
     mockGetSession.mockResolvedValue({ data: { session: null } })
     renderWithAuth()

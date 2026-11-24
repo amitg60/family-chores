@@ -33,7 +33,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     })
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      // Recovery links can land on any page (Supabase falls back to the Site URL
+      // when redirectTo isn't allow-listed); always send them to the new-password form.
+      if (event === 'PASSWORD_RECOVERY' && window.location.pathname !== '/reset-password') {
+        window.location.replace('/reset-password')
+        return
+      }
       setSession(session)
       if (session?.user) {
         setLoading(true)
